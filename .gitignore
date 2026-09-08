@@ -1,0 +1,27 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio / IntelliJ
+*.iml
+.idea/
+captures/
+
+# NDK
+.externalNativeBuild/
+.cxx/
+
+# Local SDK config (machine-specific)
+local.properties
+
+# Build outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+*.keystore
+*.jks
+
+# Signing keys stay private. The Gradle wrapper remains committed so CI and
+# clean clones can build.

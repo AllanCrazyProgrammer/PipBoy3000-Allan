@@ -1,0 +1,611 @@
+/* Layout GLUE + a responsive scaling layer. Colors/borders/fonts/effects come
+   from the design system tokens; here we only re-scale the size tokens so the
+   whole UI adapts to any display ("teljes igazodas a kijelzo merethez"). */
+
+/* -------------------------------------------------- responsive token layer --
+   A viewport-tied unit drives clamp() ranges that keep current proportions but
+   shrink on small phones (~320px) and grow modestly on tablets. Only size and
+   spacing tokens are overridden; tracking, colors and effects are untouched. */
+.pip-root {
+  --u: min(2.7vw, 2.7vh);
+  --pip-fs-xs: clamp(9px, calc(0.72 * var(--u) + 6px), 13px);
+  --pip-fs-sm: clamp(11px, calc(0.85 * var(--u) + 7px), 15px);
+  --pip-fs-base: clamp(12px, calc(1 * var(--u) + 8px), 17px);
+  --pip-fs-lg: clamp(14px, calc(1.2 * var(--u) + 9px), 21px);
+  --pip-fs-xl: clamp(18px, calc(1.6 * var(--u) + 11px), 28px);
+  --pip-fs-2xl: clamp(22px, calc(2.1 * var(--u) + 13px), 38px);
+  --pip-fs-3xl: clamp(28px, calc(2.8 * var(--u) + 16px), 52px);
+  --pip-space-1: clamp(3px, calc(0.3 * var(--u) + 2px), 5px);
+  --pip-space-2: clamp(5px, calc(0.6 * var(--u) + 4px), 10px);
+  --pip-space-3: clamp(8px, calc(0.9 * var(--u) + 5px), 15px);
+  --pip-space-4: clamp(10px, calc(1.2 * var(--u) + 7px), 20px);
+  --pip-space-5: clamp(13px, calc(1.7 * var(--u) + 9px), 30px);
+  --pip-space-6: clamp(18px, calc(2.3 * var(--u) + 12px), 40px);
+  --pip-space-7: clamp(26px, calc(3.4 * var(--u) + 16px), 60px);
+}
+
+/* --- Reach the display edges -----------------------------------------------
+   The DS gives .pip-screen a large horizontal gutter (var(--pip-space-5)).
+   Pull the LEFT/RIGHT padding in so content reaches the screen edges; only a
+   tiny legibility gutter remains. Cutouts are still respected via the
+   safe-area insets applied to .pip-screen__inner. Top/bottom stay as the DS
+   sets them. border-box keeps the reduced padding inside the locked height. */
+#root > .pip-screen {
+  padding-left: 7px;
+  padding-right: 7px;
+}
+
+/* --- Lock the page: it must NEVER scroll or bounce in either axis. ---------
+   The document is pinned to the viewport; only .app__body scrolls internally.
+   100dvh (with 100vh fallback) is the source of truth for the locked height so
+   chrome + tabs + first content fit without the page ever scrolling. */
+html, body, #root {
+  height: 100%;
+  height: 100vh;
+  height: 100dvh;
+  margin: 0;
+  overflow: hidden;          /* no page scroll, either axis */
+  position: fixed;           /* pin to viewport — kills overscroll/bounce */
+  inset: 0;
+  width: 100%;
+  overscroll-behavior: none; /* no rubber-band / chained scroll on the page */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Make the Screen fill the locked viewport so the green terminal covers
+   everything. The design system applies .pip-root / .pip-screen /
+   .pip-screen__inner; .pip-screen already has padding + overflow:hidden. */
+#root > .pip-screen {
+  height: 100%;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 100%;
+  /* .pip-screen carries the DS padding (var(--pip-space-5)); border-box keeps
+     that padding INSIDE the locked height so the screen never exceeds 100dvh.
+     (The DS only applies border-box to .pip-root *descendants*, not this node.) */
+  box-sizing: border-box;
+  overflow: hidden;          /* never let the screen itself scroll */
+}
+.pip-screen > .pip-screen__inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;              /* flex child must be allowed to shrink */
+  overflow: hidden;
+  box-sizing: border-box;
+  /* Respect notches / cutouts. The top status bar is hidden by the app
+     (immersive), so inset-top is ~0; we still honour it if nonzero.
+     The bottom navigation-bar inset is applied to the scroll area instead so
+     the last list row clears the Android nav bar — see .app__body. */
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* App shell: fixed chrome (system bar + tabs) + single scrollable body.
+   min-height:0 on the column and the scroll child lets overflow actually work
+   instead of forcing the column to grow past the viewport. */
+.app {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;             /* allow children to shrink so overflow works */
+  min-width: 0;
+  overflow-x: hidden;        /* nothing may overflow horizontally */
+}
+.app__chrome { flex: 0 0 auto; min-width: 0; }
+.app__tabs { flex: 0 0 auto; margin-top: 10px; min-width: 0; }
+/* THE ONLY scrollable element. */
+.app__body {
+  flex: 1 1 auto;
+  min-height: 0;             /* critical: lets the flex child scroll, not grow */
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;       /* keep scroll from chaining to the page */
+  -webkit-overflow-scrolling: touch;  /* momentum scroll on iOS/WebView */
+  padding-top: 12px;
+  /* Clear the Android navigation bar so the last row isn't hidden behind it. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Vertical stacking of sections with breathing room */
+.stack > * + * { margin-top: 12px; }
+
+/* System bar: clock identity on the left, vitals chips on the right.
+   Wraps on narrow widths so nothing is clipped. */
+.sysbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.sysbar__clock { flex: 0 0 auto; min-width: 0; }
+/* The big clock scales with the smaller viewport axis so it never wraps or
+   overflows in portrait OR landscape. */
+.sysbar__clock .pip-heading {
+  font-size: clamp(1.8rem, min(9vw, 11vh), 3rem);
+  line-height: 1;
+  margin: 0;
+  white-space: nowrap;
+}
+.sysbar__vitals {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: right;
+}
+/* Vitals chips wrap gracefully rather than forcing horizontal overflow.
+   (DS class is .pip-statusbar — no hyphen.) Tighten the large default gap so
+   BAT/SIG/NET/NOTIF stay compact instead of spreading over three tall rows. */
+.sysbar__vitals .pip-statusbar {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+/* Keep the fixed-width padding (added in JS) intact and digits monospaced so
+   changing values (NET speed, BAT charging, SIG) never reflow / make the bar
+   jump. white-space:pre preserves the pad spaces. */
+.sysbar__vitals .pip-statusbar__value {
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Shared list rows (apps / contacts / call log / notifications) */
+.rows > * + * { margin-top: 4px; }
+
+.contacts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 8px;
+}
+.contacts-grid > * + * { margin-top: 0; }
+.contacts-grid .lrow { min-width: 0; }
+.contacts-grid .lrow__main { align-items: flex-start; gap: 5px; padding: 7px 3px; }
+.contacts-grid .lrow__marker { width: 1.1em; }
+.contacts-grid .lrow__primary,
+.contacts-grid .lrow__secondary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contacts-grid .lrow__secondary { font-size: var(--pip-fs-xs); }
+
+/* A docked horizontal-wrapping group (favorites / frequent) */
+.dock {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dock .lrow { width: auto; flex: 0 1 auto; }
+.dock .lrow__main { padding: 4px 8px; }
+
+/* The single tappable ListRow: marker | body | trailing meta + optional action */
+.lrow {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.lrow--clickable { cursor: pointer; }
+.lrow--clickable:active { background: var(--pip-green-ghost); }
+.lrow__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 6px 4px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.lrow__marker { flex: 0 0 auto; width: 1.4em; text-align: center; }
+.lrow__body { flex: 1 1 auto; min-width: 0; }
+.lrow__primary { display: block; }
+.lrow__secondary { display: block; opacity: 0.6; }
+.lrow__meta { flex: 0 0 auto; opacity: 0.7; align-self: center; }
+.lrow__action { flex: 0 0 auto; align-self: center; }
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* SMS in-app reader: thread header + conversation bubbles. Colours come from
+   Text variants/tokens; these rules are layout only. */
+.sms-thread__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sms-thread__head .ellipsis {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sms-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sms-msg {
+  max-width: 80%;
+  padding: 6px 8px;
+}
+.sms-msg--in { align-self: flex-start; }
+.sms-msg--out { align-self: flex-end; text-align: right; }
+/* Preserve message line breaks and wrap long words. */
+.sms-msg > * { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.sms-msg__time { margin-top: 2px; }
+
+/* Responsive grid for shortcut buttons (RADIO) and any shortcut grids.
+   auto-fit + minmax keeps ~3 columns on phones and grows to more on tablets,
+   collapsing to fewer on very narrow screens — never overflowing horizontally. */
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 92px), 1fr));
+  gap: 8px;
+}
+.grid-3 > * { min-width: 0; }
+
+/* Pip-Boy display colour selector (RADIO > INTERFACE). */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 7px;
+}
+.theme-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--pip-border);
+  background: transparent;
+  color: var(--pip-text);
+  font: inherit;
+  font-size: var(--pip-fs-xs);
+  cursor: pointer;
+}
+.theme-chip--active {
+  border-color: var(--pip-green);
+  background: var(--pip-green-ghost);
+  box-shadow: var(--pip-glow);
+}
+.theme-chip__swatch {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  background: var(--swatch);
+  box-shadow: 0 0 6px var(--swatch);
+}
+
+/* RADIO system-access rows */
+.access-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.access-row + .access-row { margin-top: 10px; }
+.access-row__info { flex: 1 1 auto; min-width: 0; }
+.access-row__btn { flex: 0 0 auto; }
+
+/* Modal action stack */
+.modal-actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* Generic key/value text row inside readout panels */
+.kv { display: flex; justify-content: space-between; gap: 12px; }
+.kv > :last-child { text-align: right; }
+
+/* --------------------------------------------------------- landscape / short.
+   When vertical space is scarce (landscape phones), compact the chrome: shrink
+   the clock and tighten the tab gap so chrome + tabs + first content still fit
+   without the chrome being pushed off-screen. */
+@media (max-height: 520px) {
+  .pip-screen { padding: var(--pip-space-3); }
+  .sysbar__clock .pip-heading {
+    font-size: clamp(1.4rem, 7vh, 2.2rem);
+  }
+  .app__tabs { margin-top: 6px; }
+  .app__body { padding-top: 8px; }
+}
+
+/* Very narrow widths: let the clock and vitals each take a full row. */
+@media (max-width: 340px) {
+  .sysbar { justify-content: center; }
+  .sysbar__vitals { text-align: center; flex-basis: 100%; }
+  .sysbar__vitals .pip-statusbar { justify-content: center; }
+}
+
+/* --------------------------------------------------------------- TERMINAL ---
+   A REAL terminal (xterm.js) wired to a native PTY. The TERM body does NOT
+   page-scroll — the page stays pinned (see .app__body) while xterm manages its
+   own scrollback inside .term__xterm. The whole column never scrolls as a unit;
+   only the .xterm-viewport (styled by xterm.css) scrolls internally. */
+/* Persistent terminal host — always mounted; shown only on the TERM tab so the
+   xterm buffer + shell session survive tab switches / backgrounding. */
+.term-host {
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.term {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Fill the scrollable body so the xterm container can flex-grow to bottom. */
+  height: 100%;
+}
+/* Sit the terminal window bottom close to the keyboard top: trim the panel +
+   body bottom spacing so the xterm extends near the bottom of the host. */
+.term__panel { margin-bottom: 0; }
+.term__panel .pip-panel__body {
+  padding-bottom: 4px;
+}
+/* The persistent host carries the terminal; drop the .app__body bottom gap
+   when the host is shown so there's minimal space above the keyboard.
+   (Locked-scroll is unaffected: xterm still owns its internal scroll.) */
+.app__body > .term-host {
+  margin-bottom: 0;
+}
+.term__panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* The Panel body wrapper grows to fill the Panel and lets its child shrink so
+   the xterm container — not the page — is what fills + scrolls internally. */
+.term__panel .pip-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Quick-command chips + CLEAR/KILL, pinned above the terminal. */
+.term__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+/* The xterm container MUST have a real pixel size so FitAddon can measure it:
+   flex:1 + min-height:0 lets it fill the panel body without growing the page.
+   Don't override xterm's own colours/viewport styles (from term/xterm.css);
+   we only own the box sizing here. */
+.term__xterm {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+/* Make xterm's own root fill the sized container in both axes. */
+.term__xterm .xterm,
+.term__xterm .xterm-viewport,
+.term__xterm .xterm-screen {
+  width: 100%;
+  height: 100%;
+}
+
+/* -------------------------------------------------- notification popups -----
+   Fixed top overlay layer above .app, below the Modal (z 1000). The layer is
+   click-through; only the cards capture taps. Respects the top safe-area. */
+.notif-pop-layer {
+  position: fixed;
+  top: env(safe-area-inset-top, 0px);
+  left: 0;
+  right: 0;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0;
+  pointer-events: none;
+}
+.notif-pop {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 480px;
+}
+.notif-pop__panel { position: relative; }
+.notif-pop__card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  /* Leave room for the ✕ button in the top-right. */
+  padding-right: 28px;
+}
+.notif-pop__tag { letter-spacing: 0.08em; }
+.notif-pop__title { margin-top: 2px; }
+.notif-pop__text {
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.notif-pop__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  line-height: 1;
+  z-index: 1;
+}
+/* Compact, square close button that stays inside the panel frame (its border
+   was overflowing the panel edge with the default button padding). */
+.notif-pop__close .pip-btn,
+.notif-pop__close button {
+  padding: 2px 8px;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------- tabs fit ---
+   The DS lays tabs in a non-wrapping row with wide padding + wide tracking, so
+   4-5 main tabs (and the 4 DATA sub-tabs) overflow and get clipped ("RADI",
+   "N"). Make every tab an equal flex column that shrinks to fit the width,
+   single-line with ellipsis as a last resort. Applies to all .pip-tabs rows. */
+.pip-tabs {
+  width: 100%;
+  gap: 2px;
+}
+.pip-tabs__tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: var(--pip-space-2);
+  padding-right: var(--pip-space-2);
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--pip-fs-sm);
+}
+@media (max-width: 380px) {
+  .pip-tabs__tab {
+    font-size: var(--pip-fs-xs);
+    letter-spacing: 0;
+    padding-left: var(--pip-space-1);
+    padding-right: var(--pip-space-1);
+  }
+}
+
+/* --------------------------------------------------------- uniform tiles -----
+   Shortcut/quick-setting buttons must be equal-sized tiles with text that fits
+   on one line — no more ragged heights or wrapped/clipped labels. Equal rows
+   via grid-auto-rows:1fr; each button fills its cell and never wraps. */
+.grid-3 { grid-auto-rows: 1fr; align-items: stretch; }
+.grid-3 > * { display: flex; }
+.grid-3 .pip-btn,
+.grid-3 button {
+  width: 100%;
+  min-height: 44px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: var(--pip-tracking);
+  padding-left: var(--pip-space-2);
+  padding-right: var(--pip-space-2);
+}
+
+/* --------------------------------------------- wide / foldable / landscape ---
+   Rotation is enabled (manifest) and config changes are handled, so the WebView
+   just reflows — these rules make wide / unfolded-foldable / tablet layouts look
+   intentional rather than stretched. The whole .app column (chrome + tabs +
+   body together) is centered to a comfortable measure; grids/docks already
+   auto-fit, so the extra width becomes more columns instead of dead space. */
+@media (min-width: 700px) {
+  .pip-screen > .pip-screen__inner { align-items: center; }
+  .app { width: 100%; max-width: 960px; }
+}
+/* Only grow the clock when there's also vertical room (not on short landscape
+   phones, which keep the compact chrome from the max-height rule above). */
+@media (min-width: 700px) and (min-height: 640px) {
+  .sysbar__clock .pip-heading { font-size: clamp(2.2rem, 7vw, 3.4rem); }
+}
+
+/* ---------------------------------------------------------------- DIALER ----
+   A 3x4 dialpad of tappable keys. Layout/box only; colours come from tokens. */
+.dialer__display {
+  text-align: center;
+  min-height: 1.6em;
+  padding: 4px 8px;
+}
+.dialer__actions {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.dialer__actions > :first-child { flex: 1 1 auto; }
+.dialer__actions > :last-child { flex: 0 0 auto; }
+
+.dialpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.dialpad__key {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  gap: 2px;
+  background: transparent;
+  border: var(--pip-border-w, 1px) solid var(--pip-border, #155f2c);
+  border-radius: var(--pip-radius, 4px);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.dialpad__key:active { background: var(--pip-bg-elevated, #112018); }
+.dialpad__digit {
+  font-size: var(--pip-fs-lg);
+  line-height: 1;
+  color: var(--pip-text-bright);
+}
+.dialpad__sub {
+  font-size: var(--pip-fs-xs);
+  letter-spacing: 0.12em;
+  opacity: 0.6;
+}
+
+/* ------------------------------------------------------------- IN-CALL UI ---
+   A fixed full-screen Pip-Boy overlay above the tabs (like the Modal layer)
+   shown whenever a call is not IDLE. Scrollable if controls overflow. */
+.incall {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--pip-space-4);
+  padding-top: calc(var(--pip-space-4) + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(var(--pip-space-4) + env(safe-area-inset-bottom, 0px));
+  background: var(--pip-bg-scrim, rgba(4, 10, 7, 0.92));
+  box-sizing: border-box;
+}
+.incall__panel {
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.incall__who { margin: 0; text-align: center; }
+.incall__status { text-align: center; font-variant-numeric: tabular-nums; }
+.incall__answer { display: flex; flex-direction: column; gap: 10px; }
+.incall__controls { display: flex; flex-direction: column; }
+.incall__toggles {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 12px;
+}
+.incall__keypad { margin-top: 12px; }
+
+/* --------------------------------------------------------- SMS reply row ----
+   Bottom compose row inside the SMS thread view: input + SEND button. */
+.sms-reply {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.sms-reply__input { flex: 1 1 auto; min-width: 0; }
+.sms-reply__send { flex: 0 0 auto; }
+/* Default-app banners are slim. */
+.sms-default, .dialer-default { margin: 0; }

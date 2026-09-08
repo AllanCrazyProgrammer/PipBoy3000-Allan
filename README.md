@@ -89,12 +89,9 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ### Signing
 
-Every build is signed with a **constant `debug.keystore` committed at the repo
-root** (alias `androiddebugkey`, store/key password `android`). This gives both
-local and CI builds a stable, reproducible signature with no secrets required.
-
-> This is a debug key for development and sideloading convenience only. **It is
-> not a production signing key** and must not be used to publish a release.
+The private signing keystore is intentionally **not included** in this public
+repository. Local debug builds use the developer's local Android debug key.
+Official update APKs must be signed with Allan's privately stored signing key.
 
 ## Continuous integration
 
@@ -105,8 +102,8 @@ The GitHub Actions workflow is **manual-only** (`workflow_dispatch`):
 3. Click **Run workflow** (optionally choose `debug` or `release`).
 
 When it finishes, download the APK from the run's **Artifacts** section
-(`pipboy3000-debug-apk` / `pipboy3000-release-apk`). No signing secrets are
-needed because the build uses the committed debug key.
+(`pipboy3000-debug-apk` / `pipboy3000-release-apk`). Release workflows should
+receive signing credentials through protected repository secrets.
 
 ## Install
 
