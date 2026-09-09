@@ -5,6 +5,8 @@ import android.app.AppOpsManager
 import android.app.role.RoleManager
 import android.app.usage.UsageStatsManager
 import android.bluetooth.BluetoothManager
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -229,53 +231,117 @@ class LauncherBridge(
     // ---------------------------------------------------------------------
 
     /**
-     * JSON array of {"name","number"}, distinct by name+number, sorted by
-     * display name. Requires READ_CONTACTS; returns "[]" if denied.
+     * JSON array of {"name","number","favorite"}, distinct by phone number,
+     * sorted by display name. Requires READ_CONTACTS; returns "[]" if denied.
      */
     @JavascriptInterface
     fun getContacts(): String {
         if (!hasPermission(android.Manifest.permission.READ_CONTACTS)) return "[]"
         return try {
-            data class Contact(val name: String, val number: String)
+            data class Contact(val name: String, val number: String, val favorite: Boolean)
 
             val projection = arrayOf(
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
                 ContactsContract.CommonDataKinds.Phone.NUMBER,
                 ContactsContract.CommonDataKinds.Phone.STARRED,
             )
-            val seen = HashSet<String>()
-            val contacts = ArrayList<Contact>()
+            val contactsByNumber = LinkedHashMap<String, Contact>()
             activity.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                 projection,
-                ContactsContract.CommonDataKinds.Phone.STARRED + " != 0",
+                null,
                 null,
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC",
             )?.use { c ->
                 val nameIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                 val numberIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                val starredIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.STARRED)
                 while (c.moveToNext()) {
                     val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
                     val number = if (numberIdx >= 0) c.getString(numberIdx) ?: "" else ""
+                    val favorite = starredIdx >= 0 && c.getInt(starredIdx) != 0
                     if (number.isEmpty()) continue
                     val digits = number.filter { it.isDigit() }
                     val key = if (digits.length > 10) digits.takeLast(10) else digits
-                    if (key.isEmpty() || !seen.add(key)) continue
-                    contacts.add(Contact(name, number))
+                    if (key.isEmpty()) continue
+
+                    val existing = contactsByNumber[key]
+                    if (existing == null || (favorite && !existing.favorite)) {
+                        contactsByNumber[key] = Contact(name, number, favorite)
+                    }
                 }
             }
 
+            val contacts = contactsByNumber.values.toMutableList()
             contacts.sortWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
 
             val arr = JSONArray()
             for (ct in contacts) {
-                arr.put(JSONObject().put("name", ct.name).put("number", ct.number))
+                arr.put(
+                    JSONObject()
+                        .put("name", ct.name)
+                        .put("number", ct.number)
+                        .put("favorite", ct.favorite)
+                )
             }
             arr.toString()
         } catch (e: SecurityException) {
             "[]"
         } catch (e: Exception) {
             "[]"
+        }
+    }
+
+    /** Add or remove every contact matching [number] from Android favorites. */
+    @JavascriptInterface
+    fun setContactFavorite(number: String, favorite: Boolean): Boolean {
+        if (!hasPermission(android.Manifest.permission.WRITE_CONTACTS)) {
+            try {
+                activity.runOnUiThread { requestPermissions.invoke() }
+            } catch (e: Exception) {
+                // swallow
+            }
+            return false
+        }
+        if (number.isBlank()) return false
+
+        return try {
+            val lookupUri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(number),
+            )
+            val contactIds = LinkedHashSet<Long>()
+            activity.contentResolver.query(
+                lookupUri,
+                arrayOf(ContactsContract.PhoneLookup._ID),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                val idIdx = cursor.getColumnIndex(ContactsContract.PhoneLookup._ID)
+                while (cursor.moveToNext()) {
+                    if (idIdx >= 0) contactIds.add(cursor.getLong(idIdx))
+                }
+            }
+
+            if (contactIds.isEmpty()) return false
+            val values = ContentValues().apply {
+                put(ContactsContract.Contacts.STARRED, if (favorite) 1 else 0)
+            }
+            var updated = 0
+            for (contactId in contactIds) {
+                updated += activity.contentResolver.update(
+                    ContentUris.withAppendedId(ContactsContract.Contacts.CONTENT_URI, contactId),
+                    values,
+                    null,
+                    null,
+                )
+            }
+            updated > 0
+        } catch (e: SecurityException) {
+            false
+        } catch (e: Exception) {
+            false
         }
     }
 
@@ -1495,10 +1561,13 @@ class LauncherBridge(
             true
         } else {
             val launch = activity.packageManager.getLaunchIntentForPackage(packageName)
-                ?: return false
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            activity.startActivity(launch)
-            true
+            if (launch == null) {
+                false
+            } else {
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                activity.startActivity(launch)
+                true
+            }
         }
     } catch (e: Exception) {
         false

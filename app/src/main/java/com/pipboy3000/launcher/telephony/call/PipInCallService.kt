@@ -10,9 +10,9 @@ import com.pipboy3000.launcher.MainActivity
  * Default-phone-app InCallService. Bridges the system telecom stack to [CallStore],
  * which in turn pushes call state to the web in-call screen.
  *
- * The orchestrator declares this in the manifest with BIND_INCALL_SERVICE,
- * IN_CALL_SERVICE_UI=true, IN_CALL_SERVICE_RINGING=true and the
- * android.telecom.InCallService intent-filter.
+ * The manifest declares BIND_INCALL_SERVICE and IN_CALL_SERVICE_UI=true. Ringing
+ * remains owned by Android Telecom so the user's system ringtone, ring volume,
+ * vibration and Do Not Disturb preferences are respected.
  *
  * Every override is fully defensive and must never crash.
  */

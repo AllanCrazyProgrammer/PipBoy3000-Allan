@@ -110,16 +110,38 @@ html, body, #root {
 }
 
 /* Vertical stacking of sections with breathing room */
+/* One stationary CRT overlay covers dialogs and the terminal as well. */
+.pip-root::after { display: none; }
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, .32) 0px,
+    rgba(0, 0, 0, .32) 1px,
+    transparent 1px,
+    transparent 2px,
+    color-mix(in srgb, var(--pip-green, #33ff66) 16%, transparent) 2px,
+    color-mix(in srgb, var(--pip-green, #33ff66) 16%, transparent) 3px,
+    transparent 3px,
+    transparent 5px
+  );
+}
 .stack > * + * { margin-top: 12px; }
 
 /* System bar: clock identity on the left, vitals chips on the right.
    Wraps on narrow widths so nothing is clipped. */
 .sysbar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px 12px;
+  padding-right: 44px;
 }
 .sysbar__clock { flex: 0 0 auto; min-width: 0; }
 /* The big clock scales with the smaller viewport axis so it never wraps or
@@ -155,6 +177,28 @@ html, body, #root {
 .sysbar__vitals .pip-statusbar__value {
   white-space: pre;
   font-variant-numeric: tabular-nums;
+}
+.sysbar__settings {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--pip-border-strong);
+  background: var(--pip-green-ghost);
+  color: var(--pip-green-bright);
+  font: inherit;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  text-shadow: var(--pip-glow);
+}
+.sysbar__settings:active {
+  background: var(--pip-green-soft);
+  transform: translateY(1px);
 }
 
 /* Shared list rows (apps / contacts / call log / notifications) */

@@ -50,26 +50,76 @@
   }
 
   var navAudioContext = null;
-  function playNavSound() {
+  var soundOutput = null;
+  var lastSoundAt = 0;
+  // Short, softly enveloped CRT/relay cues; no key listeners or typing sounds.
+  function playNavSound(kind) {
     try {
+      if (lsGetRaw(NAV_SOUND_KEY, "1") === "0") return;
+      if (Date.now() - lastSoundAt < 65) return;
+      lastSoundAt = Date.now();
       var AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
-      if (!navAudioContext) navAudioContext = new AudioCtx();
+      if (!navAudioContext) {
+        navAudioContext = new AudioCtx();
+        var filter = navAudioContext.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 2400;
+        soundOutput = navAudioContext.createGain();
+        soundOutput.gain.value = 0.16;
+        soundOutput.connect(filter);
+        filter.connect(navAudioContext.destination);
+      }
       if (navAudioContext.state === "suspended") navAudioContext.resume();
-      var now = navAudioContext.currentTime;
-      var osc = navAudioContext.createOscillator();
-      var gain = navAudioContext.createGain();
-      osc.type = "square";
-      osc.frequency.setValueAtTime(720, now);
-      osc.frequency.exponentialRampToValueAtTime(390, now + 0.055);
-      gain.gain.setValueAtTime(0.035, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
-      osc.connect(gain);
-      gain.connect(navAudioContext.destination);
-      osc.start(now);
-      osc.stop(now + 0.065);
+      var patterns = {
+        button: [[0, 480, 320, .07]],
+        apps: [[0, 420, 620, .08], [.085, 840, 840, .07]],
+        data: [[0, 660, 660, .065], [.075, 990, 740, .09]],
+        term: [[0, 260, 520, .11], [.115, 1040, 780, .07]],
+        stat: [[0, 520, 520, .07], [.085, 650, 650, .08]],
+        radio: [[0, 310, 620, .09], [.1, 930, 620, .1]],
+        tab: [[0, 580, 750, .07], [.08, 750, 750, .05]],
+        open: [[0, 340, 680, .11], [.12, 900, 900, .06]],
+        close: [[0, 650, 430, .09], [.1, 320, 260, .07]],
+        toggle: [[0, 760, 760, .045], [.065, 1100, 900, .06]],
+        confirm: [[0, 520, 520, .08], [.09, 780, 780, .12]],
+        error: [[0, 220, 180, .11], [.14, 220, 160, .11]],
+      };
+      var now = navAudioContext.currentTime + .008;
+      (patterns[kind] || patterns.button).forEach(function (note) {
+        var osc = navAudioContext.createOscillator();
+        var gain = navAudioContext.createGain();
+        var start = now + note[0], end = start + note[3];
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(note[1], start);
+        osc.frequency.exponentialRampToValueAtTime(note[2], end);
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(.7, start + .006);
+        gain.gain.exponentialRampToValueAtTime(.001, end);
+        osc.connect(gain);
+        gain.connect(soundOutput);
+        osc.onended = function () { osc.disconnect(); gain.disconnect(); };
+        osc.start(start);
+        osc.stop(end + .01);
+      });
     } catch (e) {}
   }
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) return;
+    var control = target.closest("button, [role='switch'], [role='tab']");
+    if (!control || control.disabled || control.getAttribute("aria-disabled") === "true") return;
+    if (control.closest(".dialpad, .xterm, [data-sound='off']") || control.textContent.trim() === "<") return;
+    // Tabs play their own section-specific cue; all other actions use one cue.
+    if (control.getAttribute("role") === "tab") return;
+    var kind = "button";
+    if (control.getAttribute("role") === "switch" || control.closest(".theme-grid")) kind = "toggle";
+    else if (control.closest(".sysbar, .dock, .rows")) kind = "open";
+    else if (/CANCEL|CLOSE|BACK|UNPIN|HANG|REJECT/.test(control.textContent)) kind = "close";
+    else if (/SEND|SAVE|PIN|CALL|ANSWER/.test(control.textContent)) kind = "confirm";
+    playNavSound(kind);
+  }, true);
 
   var P = window.PipBoy;
   var Screen = P.Screen,
@@ -136,6 +186,9 @@
   }
   function getContacts() {
     return callJson("getContacts", [], []);
+  }
+  function setContactFavorite(number, favorite) {
+    return callBool("setContactFavorite", [number, favorite]);
   }
   function getDeviceStats() {
     return callJson("getDeviceStats", [], null);
@@ -235,6 +288,13 @@
   }
   function vibrate(ms) {
     callBool("vibrate", [ms]);
+  }
+  function showToast(message) {
+    try {
+      if (hasBridge() && typeof bridge().toast === "function") bridge().toast(String(message));
+    } catch (e) {
+      // best-effort feedback only
+    }
   }
 
   /* --------------------------------------------- new bridge wrappers (A/B) */
@@ -428,14 +488,17 @@
     return out.join(" ");
   }
 
-  // Local live clock — { time:"HH:MM", date:"YYYY-MM-DD DOW" }.
+  // Local live clock — { time:"h:MM AM/PM", date:"YYYY-MM-DD DOW" }.
   function clockNow() {
     var d = new Date();
     function p2(n) {
       return (n < 10 ? "0" : "") + n;
     }
     var days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-    var time = p2(d.getHours()) + ":" + p2(d.getMinutes());
+    var hour24 = d.getHours();
+    var period = hour24 >= 12 ? "PM" : "AM";
+    var hour12 = hour24 % 12 || 12;
+    var time = hour12 + ":" + p2(d.getMinutes()) + " " + period;
     var date =
       d.getFullYear() +
       "-" +
@@ -916,6 +979,7 @@
     var onDismiss = props.onDismiss;
     var onPlaceCall = props.onPlaceCall;
     var smsNonce = props.smsNonce;
+    var onToggleContactFavorite = props.onToggleContactFavorite;
 
     var subTabs = [
       { id: "dialer", label: "DIALER" },
@@ -948,7 +1012,11 @@
           });
     } else if (sub === "contacts") {
       content = perms.contacts
-        ? h(Contacts, { contacts: contacts, onPlaceCall: onPlaceCall })
+        ? h(Contacts, {
+            contacts: contacts,
+            onPlaceCall: onPlaceCall,
+            onToggleFavorite: onToggleContactFavorite,
+          })
         : h(PermissionGate, {
             title: "CONTACTS ACCESS REQUIRED",
             message: "Grant contacts permission to read your address book.",
@@ -1242,6 +1310,7 @@
   function Contacts(props) {
     var contacts = props.contacts || [];
     var onPlaceCall = props.onPlaceCall || dial;
+    var onToggleFavorite = props.onToggleFavorite || function () {};
     var queryState = useState("");
     var query = queryState[0];
     var setQuery = queryState[1];
@@ -1263,19 +1332,34 @@
       [contacts, query]
     );
 
+    var lp = useLongPress(function (contact) {
+      onToggleFavorite(contact);
+    });
+
     function contactRows(list, keyPrefix) {
       return h(
         "div",
         { className: "rows contacts-grid" },
         list.map(function (c, i) {
           var named = c.name && c.name.length;
+          var pressHandlers = {
+            onPointerDown: function () { lp.onStart(c); },
+            onPointerUp: lp.onEnd,
+            onPointerLeave: lp.onCancel,
+            onPointerCancel: lp.onCancel,
+            onContextMenu: function (e) { e.preventDefault(); },
+          };
           return h(ListRow, {
             key: keyPrefix + i,
             marker: c.favorite ? "★" : ">",
             tone: c.favorite ? "warning" : "default",
             primary: (c.name || c.number || "UNKNOWN").toUpperCase(),
             secondary: named ? c.number || "" : "",
-            onClick: act(function () { onPlaceCall(c.number); }),
+            onClick: act(function () {
+              if (lp.didFire()) return;
+              onPlaceCall(c.number);
+            }),
+            pressHandlers: pressHandlers,
           });
         })
       );
@@ -1311,7 +1395,7 @@
         },
       }),
       body,
-      h(Text, { variant: "dim", size: "xs" }, "Tap a contact to dial.")
+      h(Text, { variant: "dim", size: "xs" }, "Tap to dial · long-press to add/remove favorite.")
     );
   }
 
@@ -1828,8 +1912,8 @@
         h("div", { style: { height: 10 } }),
         h(Toggle, {
           checked: navSound,
-          label: "MENU SOUNDS",
-          onChange: function (next) { setNavSound(next); if (next) playNavSound(); },
+          label: "INTERFACE SOUNDS",
+          onChange: function (next) { setNavSound(next); if (next) playNavSound("confirm"); },
         })
       ),
       h(
@@ -2577,6 +2661,17 @@
         noBridge
           ? h(Text, { as: "div", variant: "dim", size: "xs" }, "OFFLINE PREVIEW")
           : null
+      ),
+      h(
+        "button",
+        {
+          type: "button",
+          className: "sysbar__settings pip-focusable",
+          onClick: act(function () { openSettings("settings"); }),
+          "aria-label": "Abrir configuración",
+          title: "Configuración",
+        },
+        "⚙"
       )
     );
   }
@@ -2608,14 +2703,14 @@
       lsSetRaw(THEME_KEY, id);
     }, []);
     var setTab = useCallback(function (t) {
-      if (navSound) playNavSound();
+      if (navSound) playNavSound(t);
       setTabRaw(t);
       lsSetRaw(TAB_KEY, t);
     }, [navSound]);
 
     var dataTabState = useState("dialer");
     var setDataTab = useCallback(function (t) {
-      if (navSound) playNavSound();
+      if (navSound) playNavSound("tab");
       dataTabState[1](t);
     }, [navSound]);
 
@@ -2790,6 +2885,19 @@
       if (!callPlace(number)) dial(number);
     }, []);
 
+    var toggleContactFavorite = useCallback(function (contact) {
+      if (!contact || !contact.number) return;
+      var next = !contact.favorite;
+      if (setContactFavorite(contact.number, next)) {
+        setContacts(getContacts());
+        playNavSound(next ? "confirm" : "close");
+        showToast(next ? "Agregado a favoritos" : "Quitado de favoritos");
+      } else {
+        showToast("No se pudo modificar el contacto");
+        playNavSound("error");
+      }
+    }, []);
+
     // When switching into STAT, fetch the heavier network/audio/display data.
     useEffect(
       function () {
@@ -2859,6 +2967,7 @@
         setDataTab: setDataTab,
         onDismiss: dismissAndRefresh,
         onPlaceCall: placeCall,
+        onToggleContactFavorite: toggleContactFavorite,
         smsNonce: smsNonce,
       });
     } else if (tab === "term") {
@@ -2886,6 +2995,7 @@
         access: access,
         onLaunch: launchApp,
         onLongPress: function (pkg) {
+          playNavSound("open");
           setActionPkg(pkg);
         },
       });
