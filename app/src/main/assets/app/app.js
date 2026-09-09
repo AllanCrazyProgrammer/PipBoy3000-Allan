@@ -1317,6 +1317,48 @@
     );
   }
 
+  // Compact home-screen variants. Keep these focused so the landing screen
+  // remains a quick-action board instead of duplicating the full DATA views.
+  function HomeQuickContacts(props) {
+    var contacts = (props.contacts || []).slice(0, 8);
+    var onPlaceCall = props.onPlaceCall || dial;
+    var onToggleFavorite = props.onToggleFavorite || function () {};
+    var selectedState = useState(null);
+    var selected = selectedState[0], setSelected = selectedState[1];
+    var lp = useLongPress(function (contact) { setSelected(contact); playNavSound("open"); });
+    if (!contacts.length) return h(Text, { variant: "dim", size: "xs" }, "NO FAVORITE CONTACTS.");
+    return h("div", { className: "stack" },
+      h("div", { className: "rows home-list" }, contacts.map(function (c, i) {
+        var named = c.name && c.name.length;
+        return h(ListRow, {
+          key: c.number || i, marker: "★", tone: "warning",
+          primary: (c.name || c.number || "UNKNOWN").toUpperCase(), secondary: named ? c.number || "" : "",
+          onClick: act(function () { if (!lp.didFire()) onPlaceCall(c.number); }),
+          pressHandlers: { onPointerDown: function () { lp.onStart(c); }, onPointerUp: lp.onEnd, onPointerLeave: lp.onCancel, onPointerCancel: lp.onCancel, onContextMenu: function (e) { e.preventDefault(); } },
+        });
+      })),
+      h(Text, { variant: "dim", size: "xs" }, "Toca para llamar · mantén presionado para quitar favorito."),
+      h(Modal, { open: !!selected, title: selected ? (selected.name || selected.number) : "", onClose: function () { setSelected(null); } },
+        selected ? h("div", { className: "modal-actions" },
+          h(Button, { onClick: function () { onPlaceCall(selected.number); setSelected(null); } }, "LLAMAR"),
+          h(Button, { onClick: function () { onToggleFavorite(selected); setSelected(null); } }, "QUITAR DE FAVORITOS"),
+          h(Button, { onClick: function () { setSelected(null); } }, "CANCELAR")) : null)
+    );
+  }
+
+  function HomeRecentCalls(props) {
+    var entries = (props.entries || []).slice(0, 8);
+    var onPlaceCall = props.onPlaceCall || dial;
+    if (!props.hasAccess) return h(Text, { variant: "dim", size: "xs" }, "CALL LOG ACCESS REQUIRED.");
+    if (!entries.length) return h(Text, { variant: "dim", size: "xs" }, "NO RECENT CALLS.");
+    return h("div", { className: "rows home-list" }, entries.map(function (c, i) {
+      var t = byCallType(c.type), named = c.name && c.name.length;
+      return h(ListRow, { key: (c.date || "call") + "-" + i, marker: t.marker, tone: t.tone,
+        primary: (named ? c.name : c.number || "UNKNOWN").toUpperCase(), secondary: named ? c.number || "" : "", meta: relativeTime(c.date),
+        onClick: act(function () { onPlaceCall(c.number); }) });
+    }));
+  }
+
   function Contacts(props) {
     var contacts = props.contacts || [];
     var onPlaceCall = props.onPlaceCall || dial;
@@ -3029,6 +3071,10 @@
       setTab("data");
       dataTabState[1]("notifs");
     }, [setTab]);
+    var goCalls = useCallback(function () {
+      setTab("data");
+      dataTabState[1]("calls");
+    }, [setTab]);
 
     var mainTabs = [
       { id: "home", label: "INICIO" },
@@ -3046,7 +3092,11 @@
       body=h("div",{className:"stack"},
         h(Section,{title:"TU PIP-BOY"},h(Heading,{level:2},"BIENVENIDO, ALLAN"),h(Text,null,"Batería: "+(stats?stats.batteryPct:"--")+"%"),h(Text,null,"Próxima alarma: "+(function(){try{return hasBridge()?bridge().nextAlarm():"Sin datos";}catch(e){return "Sin datos";}})())),
         h(Section,{title:"APLICACIONES FAVORITAS"},favorites.length?h("div",{className:"grid-3"},favorites.map(function(pkg){var a=findApp(apps,pkg);return a?h(Button,{key:pkg,onClick:function(){launchApp(pkg);}},appLabelOf(a)):null;})):h(Text,null,"Mantén presionada una app en APPS para fijarla.")),
-        h(Section,{title:"CONTACTOS RÁPIDOS"},h(Contacts,{contacts:contacts.filter(function(c){return c.favorite;}),onPlaceCall:placeCall,onToggleFavorite:toggleContactFavorite})),
+        h("div",{className:"home-communications"},
+          h(Section,{title:"CONTACTOS RÁPIDOS",className:"home-communications__panel"},h(HomeQuickContacts,{contacts:contacts.filter(function(c){return c.favorite;}),onPlaceCall:placeCall,onToggleFavorite:toggleContactFavorite})),
+          h(Section,{title:"LLAMADAS RECIENTES",className:"home-communications__panel"},
+            h(HomeRecentCalls,{entries:callLog,hasAccess:perms.callLog,onPlaceCall:placeCall}),
+            h(Button,{onClick:goCalls},"VER TODAS"))),
         h(Button,{onClick:function(){setTab("data");}},"LLAMADAS Y MENSAJES"));
     } else if (tab === "data") {
       body = h(DataScreen, {
