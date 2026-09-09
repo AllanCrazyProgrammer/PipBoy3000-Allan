@@ -222,6 +222,15 @@ body::after {
 .contacts-grid .lrow__secondary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .contacts-grid .lrow__secondary { font-size: var(--pip-fs-xs); }
 
+/* Compact communication panels on the home screen. */
+.home-communications { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: start; }
+.home-communications__panel, .home-list .lrow { min-width: 0; }
+.home-list .lrow__main { gap: 4px; padding: 6px 2px; }
+.home-list .lrow__primary, .home-list .lrow__secondary, .home-list .lrow__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-list .lrow__secondary { font-size: var(--pip-fs-xs); }
+.home-communications__panel .btn { width: 100%; margin-top: 8px; }
+@media (max-width: 380px) { .home-communications { grid-template-columns: 1fr; } }
+
 /* A docked horizontal-wrapping group (favorites / frequent) */
 .dock {
   display: flex;
