@@ -62,6 +62,8 @@ class LauncherBridge(
     private val emitJs: (String) -> Unit = {},
     /** Show/hide the soft keyboard for the WebView (true=show). */
     private val keyboard: (Boolean) -> Unit = {},
+    /** Persist the UI-sound setting for native lock/unlock cues. */
+    private val setInterfaceSoundsEnabled: (Boolean) -> Unit = {},
 ) {
 
     /** Live xterm.js-backed shell session for the TERM tab (lazily created). */
@@ -1032,6 +1034,16 @@ class LauncherBridge(
             }
         } catch (e: Exception) {
             // swallow
+        }
+    }
+
+    /** Mirror the Web UI's interface-sounds preference for native screen cues. */
+    @JavascriptInterface
+    fun setInterfaceSoundsEnabled(enabled: Boolean) {
+        try {
+            setInterfaceSoundsEnabled.invoke(enabled)
+        } catch (_: Exception) {
+            // optional setting only
         }
     }
 

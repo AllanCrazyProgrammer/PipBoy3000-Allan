@@ -296,6 +296,15 @@
       // best-effort feedback only
     }
   }
+  function setNativeInterfaceSounds(enabled) {
+    try {
+      if (hasBridge() && typeof bridge().setInterfaceSoundsEnabled === "function") {
+        bridge().setInterfaceSoundsEnabled(!!enabled);
+      }
+    } catch (e) {
+      // Native lock/unlock sounds are optional in browser preview.
+    }
+  }
 
   /* --------------------------------------------- new bridge wrappers (A/B) */
   // Soft keyboard (terminal focus).
@@ -2695,7 +2704,12 @@
     var setNavSound = useCallback(function (next) {
       setNavSoundRaw(next);
       lsSetRaw(NAV_SOUND_KEY, next ? "1" : "0");
+      setNativeInterfaceSounds(next);
     }, []);
+
+    useEffect(function () {
+      setNativeInterfaceSounds(navSound);
+    }, [navSound]);
     var setTheme = useCallback(function (id) {
       if (!THEMES[id]) id = "green";
       setThemeRaw(id);
