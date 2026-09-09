@@ -113,6 +113,8 @@ html, body, #root {
 /* One stationary CRT overlay covers dialogs and the terminal as well. */
 .pip-root::after { display: none; }
 body::after {
+  display: var(--scan-display, block);
+  opacity: calc(var(--scan-opacity, .16) / .16);
   content: "";
   position: fixed;
   inset: 0;
@@ -127,9 +129,12 @@ body::after {
     color-mix(in srgb, var(--pip-green, #33ff66) 16%, transparent) 2px,
     color-mix(in srgb, var(--pip-green, #33ff66) 16%, transparent) 3px,
     transparent 3px,
-    transparent 5px
+    transparent var(--scan-spacing, 5px)
   );
 }
+.personal-slider { display: grid; gap: 8px; margin: 16px 0; }
+.personal-slider input { width: 100%; accent-color: var(--pip-green, #33ff66); }
+.light-mode .pip-root * { text-shadow: none !important; box-shadow: none !important; animation: none !important; }
 .stack > * + * { margin-top: 12px; }
 
 /* System bar: clock identity on the left, vitals chips on the right.

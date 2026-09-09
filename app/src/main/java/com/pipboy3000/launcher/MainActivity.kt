@@ -51,6 +51,31 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var screenSounds: ScreenSoundController
     private var screenReceiverRegistered = false
+    private var pendingBackup = ""
+    private val saveBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) try {
+            contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(pendingBackup) }
+            android.widget.Toast.makeText(this, "Respaldo guardado", android.widget.Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) { android.widget.Toast.makeText(this, "No se pudo guardar", android.widget.Toast.LENGTH_SHORT).show() }
+    }
+    private val loadBackup = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) try {
+            val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
+            require(text.length < 200000)
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Restaurar configuración")
+                .setMessage("Se reemplazarán los colores, favoritos de aplicaciones y preferencias con los del respaldo.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Restaurar") { _, _ ->
+                    evalJsOnUi("window.dispatchEvent(new CustomEvent('pipboy:restore',{detail:${org.json.JSONObject.quote(text)}}));")
+                }.show()
+        } catch (_: Exception) { android.widget.Toast.makeText(this, "No se pudo leer el respaldo", android.widget.Toast.LENGTH_SHORT).show() }
+    }
+    fun exportPreferences(json: String) = runOnUiThread {
+        pendingBackup = json
+        saveBackup.launch("PipBoy-configuracion.json")
+    }
+    fun importPreferences() = runOnUiThread { loadBackup.launch(arrayOf("application/json", "text/plain")) }
     private val screenHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pendingUnlock = false
     private val unlockCheck = object : Runnable {

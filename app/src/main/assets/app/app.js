@@ -85,6 +85,7 @@
         confirm: [[0, 520, 520, .08], [.09, 780, 780, .12]],
         error: [[0, 220, 180, .11], [.14, 220, 160, .11]],
       };
+      soundOutput.gain.value = .16 * (personalOptions().buttons / 100);
       var now = navAudioContext.currentTime + .008;
       (patterns[kind] || patterns.button).forEach(function (note) {
         var osc = navAudioContext.createOscillator();
@@ -1320,6 +1321,8 @@
     var contacts = props.contacts || [];
     var onPlaceCall = props.onPlaceCall || dial;
     var onToggleFavorite = props.onToggleFavorite || function () {};
+    var selectedState = useState(null);
+    var selected = selectedState[0], selectContact = selectedState[1];
     var queryState = useState("");
     var query = queryState[0];
     var setQuery = queryState[1];
@@ -1342,7 +1345,8 @@
     );
 
     var lp = useLongPress(function (contact) {
-      onToggleFavorite(contact);
+      selectContact(contact);
+      playNavSound("open");
     });
 
     function contactRows(list, keyPrefix) {
@@ -1404,7 +1408,14 @@
         },
       }),
       body,
-      h(Text, { variant: "dim", size: "xs" }, "Tap to dial · long-press to add/remove favorite.")
+      h(Text, { variant: "dim", size: "xs" }, "Toca para llamar · mantén presionado para más opciones."),
+      h(Modal,{open:!!selected,title:selected?(selected.name||selected.number):"",onClose:function(){selectContact(null);}},
+        selected?h("div",{className:"modal-actions"},
+          h(Button,{onClick:function(){onPlaceCall(selected.number);selectContact(null);}},"LLAMAR"),
+          h(Button,{onClick:function(){callBool("openSms",[selected.number]);selectContact(null);}},"ENVIAR MENSAJE"),
+          h(Button,{onClick:function(){if(!callBool("editContact",[selected.number]))showToast("No se pudo abrir el editor");selectContact(null);}},"EDITAR CONTACTO"),
+          h(Button,{onClick:function(){onToggleFavorite(selected);selectContact(null);}},selected.favorite?"QUITAR DE FAVORITOS":"AGREGAR A FAVORITOS"),
+          h(Button,{onClick:function(){selectContact(null);}},"CANCELAR")):null)
     );
   }
 
@@ -2676,7 +2687,7 @@
         {
           type: "button",
           className: "sysbar__settings pip-focusable",
-          onClick: act(function () { openSettings("settings"); }),
+          onClick: props.onSettings,
           "aria-label": "Abrir configuración",
           title: "Configuración",
         },
@@ -2686,15 +2697,66 @@
   }
 
   /* ================================================================ App root */
+  var OPTIONS_KEY = "pipboy.personal";
+  function personalOptions() {
+    return Object.assign({buttons:100, lock:100, unlock:100, volume:100, scan:16, spacing:5, light:false}, lsGet(OPTIONS_KEY, {}));
+  }
+  function applyPersonal(options) {
+    document.documentElement.style.setProperty("--scan-opacity", options.scan / 100);
+    document.documentElement.style.setProperty("--scan-spacing", options.spacing + "px");
+    document.documentElement.style.setProperty("--scan-display", options.scan === 0 ? "none" : "block");
+    document.documentElement.classList.toggle("light-mode", options.light);
+    ["lock", "unlock", "volume"].forEach(function(k){callBool("configureSound", [k, options[k], false]);});
+  }
+  var BACKUP_KEYS = [THEME_KEY, NAV_SOUND_KEY, FAV_KEY, HIDDEN_KEY, OPTIONS_KEY];
+  window.addEventListener("pipboy:restore", function(e) {
+    try {
+      var backup = JSON.parse(e.detail);
+      if (backup.format !== "pipboy-preferences" || backup.version !== 1 || !backup.values) throw Error();
+      var v = backup.values;
+      if (!THEMES[v[THEME_KEY]] || !["0","1"].includes(v[NAV_SOUND_KEY])) throw Error();
+      [FAV_KEY,HIDDEN_KEY].forEach(function(k){var a=JSON.parse(v[k]);if(!Array.isArray(a)||a.length>2000||!a.every(function(x){return typeof x==="string";}))throw Error();});
+      var o=JSON.parse(v[OPTIONS_KEY]);
+      ["buttons","lock","unlock","volume"].forEach(function(k){if(!Number.isFinite(o[k])||o[k]<0||o[k]>100)throw Error();});
+      if (!Number.isFinite(o.scan)||o.scan<0||o.scan>40||!Number.isFinite(o.spacing)||o.spacing<3||o.spacing>10||typeof o.light!=="boolean")throw Error();
+      BACKUP_KEYS.forEach(function(k){localStorage.setItem(k,v[k]);});
+      window.location.reload();
+    } catch (err) {showToast("El archivo no es un respaldo válido de Pip-Boy");}
+  });
+  function PersonalSettings(props) {
+    var o = props.options;
+    function slider(key,label,min,max) {
+      return h("label",{className:"personal-slider"}, label + ": " + o[key],
+        h("input",{type:"range",min:min,max:max,value:o[key],onChange:function(e){props.change(Object.assign({},o,{[key]:Number(e.target.value)}));}}));
+    }
+    return h("div",{className:"stack"},
+      h(Heading,{level:2},"CONFIGURACIÓN PIP-BOY"),
+      h(Section,{title:"SONIDOS"},h(Toggle,{label:"Sonidos de interfaz",checked:props.navSound,onChange:props.setNavSound}),
+        slider("buttons","Botones",0,100),h(Button,{onClick:function(){playNavSound("confirm");}},"PROBAR BOTONES"),
+        ["lock","unlock","volume"].map(function(k,i){return h("div",{key:k},slider(k,["Bloqueo","Desbloqueo","Volumen"][i],0,100),h(Button,{onClick:function(){callBool("configureSound",[k,o[k],true]);}},"PROBAR " + ["BLOQUEO","DESBLOQUEO","VOLUMEN"][i]));})),
+      h(Section,{title:"PANTALLA"},slider("scan","Intensidad de scanlines",0,40),slider("spacing","Separación de líneas",3,10),
+        h("div",{className:"grid-3"},Object.keys(THEMES).map(function(k){return h(Button,{key:k,onClick:function(){props.setTheme(k);}},THEMES[k].label);})),
+        h(Toggle,{label:"Modo ligero · menos efectos y actualizaciones",checked:o.light,onChange:function(v){props.change(Object.assign({},o,{light:v}));}})),
+      h(Section,{title:"RESPALDO"},h(Text,null,"Guarda colores, favoritos de aplicaciones y preferencias. Los contactos siguen en tu agenda de Android."),
+        h(Button,{onClick:function(){var values={};BACKUP_KEYS.forEach(function(k){values[k]=lsGetRaw(k,k===OPTIONS_KEY?JSON.stringify(o):k===THEME_KEY?"green":k===NAV_SOUND_KEY?"1":"[]");});callBool("exportPreferences",[JSON.stringify({format:"pipboy-preferences",version:1,values:values})]);}},"EXPORTAR ARCHIVO"),
+        h(Button,{onClick:function(){callBool("importPreferences",[]);}},"IMPORTAR ARCHIVO")),
+      h(Button,{onClick:function(){openSettings("settings");}},"AJUSTES DE ANDROID"),
+      h(Button,{onClick:props.close},"VOLVER AL INICIO"));
+  }
+
   function App() {
     var tabState = useState(function () {
-      var t = lsGetRaw(TAB_KEY, "apps");
+      var t = lsGetRaw(TAB_KEY, "home");
       // Migrate legacy tab ids that no longer exist.
-      if (t === "home" || t === "inv") t = "apps";
+      if (t === "inv") t = "apps";
       return t;
     });
     var tab = tabState[0];
     var setTabRaw = tabState[1];
+    var optionState = useState(personalOptions);
+    var options = optionState[0];
+    function changeOptions(next) { lsSet(OPTIONS_KEY,next);optionState[1](next);applyPersonal(next); }
+    useEffect(function(){applyPersonal(options);},[options]);
     var navSoundState = useState(function () { return lsGetRaw(NAV_SOUND_KEY, "1") !== "0"; });
     var navSound = navSoundState[0], setNavSoundRaw = navSoundState[1];
     var themeState = useState(function () { return lsGetRaw(THEME_KEY, "green"); });
@@ -2876,11 +2938,18 @@
         window.addEventListener("pipboy:refresh", onRefresh);
         window.addEventListener("pipboy:sms", onSms);
         window.addEventListener("pipboy:open", onOpen);
-        var ivStats = setInterval(refreshStats, 10000);
+        var lastSlowPoll = 0;
+        var ivStats = setInterval(function(){
+          if(document.hidden)return;
+          if(personalOptions().light && Date.now()-lastSlowPoll<30000)return;
+          lastSlowPoll=Date.now();refreshStats();
+        }, 10000);
         var ivClock = setInterval(function () {
-          setClock(clockNow());
+          if(!document.hidden)setClock(clockNow());
         }, 1000);
-        var ivTraffic = setInterval(tickTraffic, 2000);
+        var ivTraffic = setInterval(function(){if(!document.hidden && !personalOptions().light)tickTraffic();}, 2000);
+        function visibilityRefresh(){trafficRef.current=null;if(!document.hidden)refreshAll();}
+        document.addEventListener("visibilitychange",visibilityRefresh);
         return function () {
           window.removeEventListener("pipboy:refresh", onRefresh);
           window.removeEventListener("pipboy:sms", onSms);
@@ -2888,6 +2957,7 @@
           clearInterval(ivStats);
           clearInterval(ivClock);
           clearInterval(ivTraffic);
+          document.removeEventListener("visibilitychange",visibilityRefresh);
         };
       },
       [refreshAll, refreshStats, tickTraffic, refreshSms]
@@ -2961,6 +3031,7 @@
     }, [setTab]);
 
     var mainTabs = [
+      { id: "home", label: "INICIO" },
       { id: "apps", label: "APPS" },
       { id: "data", label: "DATA" },
       { id: "term", label: "TERM" },
@@ -2969,7 +3040,15 @@
     ];
 
     var body;
-    if (tab === "data") {
+    if (tab === "settings") {
+      body=h(PersonalSettings,{options:options,change:changeOptions,navSound:navSound,setNavSound:setNavSound,setTheme:setTheme,close:function(){setTab("home");}});
+    } else if (tab === "home") {
+      body=h("div",{className:"stack"},
+        h(Section,{title:"TU PIP-BOY"},h(Heading,{level:2},"BIENVENIDO, ALLAN"),h(Text,null,"Batería: "+(stats?stats.batteryPct:"--")+"%"),h(Text,null,"Próxima alarma: "+(function(){try{return hasBridge()?bridge().nextAlarm():"Sin datos";}catch(e){return "Sin datos";}})())),
+        h(Section,{title:"APLICACIONES FAVORITAS"},favorites.length?h("div",{className:"grid-3"},favorites.map(function(pkg){var a=findApp(apps,pkg);return a?h(Button,{key:pkg,onClick:function(){launchApp(pkg);}},appLabelOf(a)):null;})):h(Text,null,"Mantén presionada una app en APPS para fijarla.")),
+        h(Section,{title:"CONTACTOS RÁPIDOS"},h(Contacts,{contacts:contacts.filter(function(c){return c.favorite;}),onPlaceCall:placeCall,onToggleFavorite:toggleContactFavorite})),
+        h(Button,{onClick:function(){setTab("data");}},"LLAMADAS Y MENSAJES"));
+    } else if (tab === "data") {
       body = h(DataScreen, {
         perms: perms,
         callLog: callLog,
@@ -3124,6 +3203,7 @@
             net: net,
             notifCount: notifCount,
             onNotif: goNotifs,
+            onSettings: function(){setTab("settings");},
             noBridge: !hasBridge(),
             clock: clock,
             speed: speed,

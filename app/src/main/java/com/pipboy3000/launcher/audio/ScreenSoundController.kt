@@ -15,7 +15,6 @@ import kotlin.math.sin
  */
 class ScreenSoundController(context: Context) {
     private val appContext = context.applicationContext
-    private val executor = Executors.newSingleThreadExecutor()
 
     fun setEnabled(enabled: Boolean) {
         appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -24,10 +23,10 @@ class ScreenSoundController(context: Context) {
             .apply()
     }
 
-    fun playLock() = play(doubleArrayOf(520.0, 300.0), intArrayOf(55, 105))
+    fun playLock() = play(doubleArrayOf(520.0, 300.0), intArrayOf(55, 105), "lock")
 
     // Lower, longer notes cut through a phone speaker better than the old high chirp.
-    fun playUnlock() = play(doubleArrayOf(280.0, 420.0, 620.0), intArrayOf(65, 65, 185))
+    fun playUnlock() = play(doubleArrayOf(280.0, 420.0, 620.0), intArrayOf(65, 65, 185), "unlock")
 
     fun playVolumeUp() = play(doubleArrayOf(520.0, 780.0), intArrayOf(35, 55))
 
@@ -37,7 +36,7 @@ class ScreenSoundController(context: Context) {
         .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getBoolean(KEY_ENABLED, true)
 
-    private fun play(frequencies: DoubleArray, durationsMs: IntArray) {
+    private fun play(frequencies: DoubleArray, durationsMs: IntArray, kind: String = "volume") {
         if (!isEnabled()) return
         executor.execute {
             var track: AudioTrack? = null
@@ -60,7 +59,7 @@ class ScreenSoundController(context: Context) {
                     AudioManager.AUDIO_SESSION_ID_GENERATE,
                 )
                 track.write(samples, 0, samples.size)
-                track.setVolume(1f)
+                track.setVolume(appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(kind, 100) / 100f)
                 track.play()
                 // Wait for actual playback, including speaker wake-up latency.
                 val deadline = android.os.SystemClock.elapsedRealtime() + 2000
@@ -97,6 +96,7 @@ class ScreenSoundController(context: Context) {
     }
 
     companion object {
+        private val executor = Executors.newSingleThreadExecutor()
         private const val PREFS = "pipboy_audio"
         private const val KEY_ENABLED = "interface_sounds_enabled"
         private const val SAMPLE_RATE = 44_100
