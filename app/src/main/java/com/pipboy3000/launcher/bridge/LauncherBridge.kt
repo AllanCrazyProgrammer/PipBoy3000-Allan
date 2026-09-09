@@ -62,10 +62,43 @@ class LauncherBridge(
     private val emitJs: (String) -> Unit = {},
     /** Show/hide the soft keyboard for the WebView (true=show). */
     private val keyboard: (Boolean) -> Unit = {},
+    /** Persist the UI-sound setting for native lock/unlock cues. */
+    private val setInterfaceSoundsEnabled: (Boolean) -> Unit = {},
 ) {
 
     /** Live xterm.js-backed shell session for the TERM tab (lazily created). */
     private var terminal: TerminalSession? = null
+
+    @JavascriptInterface
+    fun exportPreferences(json: String) { (activity as? com.pipboy3000.launcher.MainActivity)?.exportPreferences(json) }
+    @JavascriptInterface
+    fun importPreferences() { (activity as? com.pipboy3000.launcher.MainActivity)?.importPreferences() }
+    @JavascriptInterface
+    fun nextAlarm(): String {
+        val alarm = activity.getSystemService(android.app.AlarmManager::class.java).nextAlarmClock ?: return "Sin alarma programada"
+        return SimpleDateFormat("EEE h:mm a", Locale.getDefault()).format(Date(alarm.triggerTime))
+    }
+    @JavascriptInterface
+    fun configureSound(kind: String, level: Int, preview: Boolean) {
+        if (kind !in listOf("lock", "unlock", "volume")) return
+        activity.getSharedPreferences("pipboy_audio", Context.MODE_PRIVATE).edit().putInt(kind, level.coerceIn(0, 100)).apply()
+        if (preview) {
+            val sounds = com.pipboy3000.launcher.audio.ScreenSoundController(activity)
+            when (kind) { "lock" -> sounds.playLock(); "unlock" -> sounds.playUnlock(); else -> sounds.playVolumeUp() }
+        }
+    }
+    @JavascriptInterface
+    fun editContact(number: String): Boolean = try {
+        val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
+        var id: Long? = null
+        activity.contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup._ID), null, null, null)?.use {
+            if (it.moveToFirst()) id = it.getLong(0)
+        }
+        if (id == null) false else {
+            activity.startActivity(Intent(Intent.ACTION_EDIT, ContentUris.withAppendedId(ContactsContract.Contacts.CONTENT_URI, id!!)))
+            true
+        }
+    } catch (_: Exception) { false }
 
     // ---------------------------------------------------------------------
     // Apps
@@ -1032,6 +1065,16 @@ class LauncherBridge(
             }
         } catch (e: Exception) {
             // swallow
+        }
+    }
+
+    /** Mirror the Web UI's interface-sounds preference for native screen cues. */
+    @JavascriptInterface
+    fun setInterfaceSoundsEnabled(enabled: Boolean) {
+        try {
+            setInterfaceSoundsEnabled.invoke(enabled)
+        } catch (_: Exception) {
+            // optional setting only
         }
     }
 

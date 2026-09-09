@@ -1,9 +1,13 @@
 package com.pipboy3000.launcher
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.WebResourceRequest
@@ -27,6 +31,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewAssetLoader
 import com.pipboy3000.launcher.bridge.LauncherBridge
 import com.pipboy3000.launcher.bridge.NotificationStore
+import com.pipboy3000.launcher.audio.ScreenSoundController
 
 /**
  * Host shell for the Pip-Boy 3000 launcher.
@@ -44,6 +49,64 @@ import com.pipboy3000.launcher.bridge.NotificationStore
 class MainActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
+    private lateinit var screenSounds: ScreenSoundController
+    private var screenReceiverRegistered = false
+    private var pendingBackup = ""
+    private val saveBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) try {
+            contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(pendingBackup) }
+            android.widget.Toast.makeText(this, "Respaldo guardado", android.widget.Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) { android.widget.Toast.makeText(this, "No se pudo guardar", android.widget.Toast.LENGTH_SHORT).show() }
+    }
+    private val loadBackup = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) try {
+            val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
+            require(text.length < 200000)
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Restaurar configuración")
+                .setMessage("Se reemplazarán los colores, favoritos de aplicaciones y preferencias con los del respaldo.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Restaurar") { _, _ ->
+                    evalJsOnUi("window.dispatchEvent(new CustomEvent('pipboy:restore',{detail:${org.json.JSONObject.quote(text)}}));")
+                }.show()
+        } catch (_: Exception) { android.widget.Toast.makeText(this, "No se pudo leer el respaldo", android.widget.Toast.LENGTH_SHORT).show() }
+    }
+    fun exportPreferences(json: String) = runOnUiThread {
+        pendingBackup = json
+        saveBackup.launch("PipBoy-configuracion.json")
+    }
+    fun importPreferences() = runOnUiThread { loadBackup.launch(arrayOf("application/json", "text/plain")) }
+    private val screenHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingUnlock = false
+    private val unlockCheck = object : Runnable {
+        override fun run() {
+            if (!pendingUnlock) return
+            val power = getSystemService(android.os.PowerManager::class.java)
+            val keyguard = getSystemService(android.app.KeyguardManager::class.java)
+            if (power.isInteractive && !keyguard.isKeyguardLocked) {
+                pendingUnlock = false
+                screenSounds.playUnlock()
+            } else if (power.isInteractive) {
+                screenHandler.postDelayed(this, 250)
+            }
+        }
+    }
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    pendingUnlock = true
+                    screenHandler.removeCallbacks(unlockCheck)
+                    screenSounds.playLock()
+                }
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                    screenHandler.removeCallbacks(unlockCheck)
+                    screenHandler.postDelayed(unlockCheck, 300)
+                }
+            }
+        }
+    }
 
     /** Web page load state + a pending deep-link ("recents") from the Recents key. */
     private var pageReady = false
@@ -81,6 +144,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        screenSounds = ScreenSoundController(applicationContext)
+        registerScreenSoundReceiver()
 
         // --- Edge-to-edge full-screen launcher. Draw under the system bars; the web
         // UI subtracts the navigation-bar inset via CSS env(safe-area-inset-*).
@@ -119,6 +184,7 @@ class MainActivity : ComponentActivity() {
                 { requestCorePermissions() },
                 { js -> evalJsOnUi(js) },
                 { show -> runOnUiThread { setSoftKeyboard(show) } },
+                { enabled -> screenSounds.setEnabled(enabled) },
             ),
             "AndroidBridge",
         )
@@ -242,6 +308,24 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) applyImmersive()
     }
 
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        val volumeKey = event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
+            event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+        if (volumeKey && event.action == android.view.KeyEvent.ACTION_DOWN &&
+            event.repeatCount == 0) {
+            val audio = getSystemService(android.media.AudioManager::class.java)
+            // Avoid adding feedback over conversations and incoming calls.
+            if (audio.mode == android.media.AudioManager.MODE_NORMAL) {
+                val up = event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP
+                screenHandler.postDelayed({
+                    if (up) screenSounds.playVolumeUp() else screenSounds.playVolumeDown()
+                }, 70)
+            }
+        }
+        // Android still handles the volume change and its normal volume panel.
+        return super.onKeyDown(keyCode, event)
+    }
+
     /** Evaluate a JS snippet on the WebView from any thread. */
     private fun evalJsOnUi(js: String) {
         runOnUiThread { if (::webView.isInitialized) webView.evaluateJavascript(js, null) }
@@ -267,6 +351,26 @@ class MainActivity : ComponentActivity() {
         permissionLauncher.launch(corePermissions)
     }
 
+    private fun registerScreenSoundReceiver() {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // These are protected system broadcasts, including USER_PRESENT
+                // delivered by System UI on devices where its UID differs from system.
+                registerReceiver(screenReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(screenReceiver, filter)
+            }
+            screenReceiverRegistered = true
+        } catch (_: Exception) {
+            // Screen cues are optional on devices that restrict these broadcasts.
+        }
+    }
+
     /**
      * Tell the web app that native-visible state may have changed so it re-queries
      * permissions/data/battery/clock. Safe to call before the page is fully ready —
@@ -283,6 +387,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (pendingUnlock) {
+            screenHandler.removeCallbacks(unlockCheck)
+            screenHandler.postDelayed(unlockCheck, 300)
+        }
         // Battery / clock / app list may have changed while we were away.
         dispatchRefresh()
         // Only show in-launcher notification popups while we are foreground.
@@ -336,6 +444,14 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        screenHandler.removeCallbacks(unlockCheck)
+        if (screenReceiverRegistered) {
+            try {
+                unregisterReceiver(screenReceiver)
+            } catch (_: Exception) {
+                // receiver already gone
+            }
+        }
         // Detach from the view tree before destroying to avoid leaks / crashes.
         (webView.parent as? ViewGroup)?.removeView(webView)
         webView.removeAllViews()
