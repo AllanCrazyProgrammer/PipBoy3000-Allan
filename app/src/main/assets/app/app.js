@@ -2786,6 +2786,39 @@
       h(Button,{onClick:props.close},"VOLVER AL INICIO"));
   }
 
+  function HomeCalendar() {
+    // App's live clock rerenders this view, including at midnight/month changes.
+    var today = new Date();
+    var year = today.getFullYear(), month = today.getMonth();
+    var months = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+    var weekdays = ["LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB", "DOM"];
+    var offset = (new Date(year, month, 1).getDay() + 6) % 7;
+    var count = new Date(year, month + 1, 0).getDate();
+    var rows = [];
+    for (var start = 0; start < offset + count; start += 7) {
+      var cells = [];
+      for (var col = 0; col < 7; col++) {
+        var day = start + col - offset + 1;
+        var valid = day > 0 && day <= count;
+        var current = valid && day === today.getDate();
+        cells.push(h("td", {
+          key: col,
+          className: current ? "home-calendar__today" : undefined,
+          "aria-current": current ? "date" : undefined,
+          "aria-label": current ? "Hoy, " + day + " de " + months[month].toLowerCase() : undefined
+        }, valid ? day : null));
+      }
+      rows.push(h("tr", { key: start }, cells));
+    }
+    return h(Section, { title: "CALENDARIO" },
+      h("table", { className: "home-calendar" },
+        h("caption", null, months[month] + " " + year),
+        h("thead", null, h("tr", null, weekdays.map(function (day) {
+          return h("th", { key: day, scope: "col" }, day);
+        }))),
+        h("tbody", null, rows)));
+  }
+
   function App() {
     var tabState = useState(function () {
       var t = lsGetRaw(TAB_KEY, "home");
@@ -3090,7 +3123,9 @@
       body=h(PersonalSettings,{options:options,change:changeOptions,navSound:navSound,setNavSound:setNavSound,setTheme:setTheme,close:function(){setTab("home");}});
     } else if (tab === "home") {
       body=h("div",{className:"stack"},
-        h(Section,{title:"TU PIP-BOY"},h(Heading,{level:2},"BIENVENIDO, ALLAN"),h(Text,null,"Batería: "+(stats?stats.batteryPct:"--")+"%"),h(Text,null,"Próxima alarma: "+(function(){try{return hasBridge()?bridge().nextAlarm():"Sin datos";}catch(e){return "Sin datos";}})())),
+        h("p",{className:"home-greeting"},"Buenos días, Allan"),
+        h(HomeCalendar),
+        h("div",{className:"home-device-info"},h(Text,{size:"sm"},"Batería: "+(stats?stats.batteryPct:"--")+"%"),h(Text,{size:"sm"},"Próxima alarma: "+(function(){try{return hasBridge()?bridge().nextAlarm():"Sin datos";}catch(e){return "Sin datos";}})())),
         h(Section,{title:"APLICACIONES FAVORITAS"},favorites.length?h("div",{className:"grid-3"},favorites.map(function(pkg){var a=findApp(apps,pkg);return a?h(Button,{key:pkg,onClick:function(){launchApp(pkg);}},appLabelOf(a)):null;})):h(Text,null,"Mantén presionada una app en APPS para fijarla.")),
         h("div",{className:"home-communications"},
           h(Section,{title:"CONTACTOS RÁPIDOS",className:"home-communications__panel"},h(HomeQuickContacts,{contacts:contacts.filter(function(c){return c.favorite;}),onPlaceCall:placeCall,onToggleFavorite:toggleContactFavorite})),

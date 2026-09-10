@@ -223,6 +223,14 @@ body::after {
 .contacts-grid .lrow__secondary { font-size: var(--pip-fs-xs); }
 
 /* Compact communication panels on the home screen. */
+.home-greeting { margin: 0; font-size: var(--pip-fs-sm, 14px); color: var(--pip-text-dim); }
+.home-calendar { width: 100%; table-layout: fixed; border-spacing: 4px; text-align: center; font-variant-numeric: tabular-nums; }
+.home-calendar caption { padding: 0 0 10px; text-align: left; font-size: var(--pip-fs-lg, 20px); color: var(--pip-text-bright); }
+.home-calendar th { padding-bottom: 6px; font-size: var(--pip-fs-xs, 12px); font-weight: normal; color: var(--pip-text-dim); }
+.home-calendar td { height: 30px; border: 1px solid transparent; border-radius: var(--pip-radius, 4px); }
+.home-calendar__today { background: var(--pip-text); color: var(--pip-bg, #040a07); font-weight: bold; }
+.home-device-info { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.home-device-info .pip-text { margin: 0; }
 .home-communications { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: start; }
 .home-communications__panel, .home-list .lrow { min-width: 0; }
 .home-list .lrow__main { gap: 4px; padding: 6px 2px; }
