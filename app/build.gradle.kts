@@ -12,6 +12,7 @@ android {
         applicationId = "com.pipboy3000.launcher"
         minSdk = 26
         targetSdk = 34
+        testInstrumentationRunner = "com.pipboy3000.launcher.telephony.call.CallNotificationSmokeTest"
         versionCode = 5
         versionName = "1.2.1"
 

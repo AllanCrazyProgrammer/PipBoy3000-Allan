@@ -390,6 +390,15 @@
   }
 
   var FAV_KEY = "pipboy.favorites";
+  var CLIENTS_KEY = "pipboy.clients";
+  function clientKey(contact) {
+    // Match the Android bridge's phone-number deduplication.
+    return String(contact.number || "").replace(/[^0-9]/g, "").slice(-10);
+  }
+  function isClient(contact, numbers) {
+    return numbers.indexOf(clientKey(contact)) !== -1;
+  }
+
   var HIDDEN_KEY = "pipboy.hidden";
   var TAB_KEY = "pipboy.lastTab";
 
@@ -921,7 +930,7 @@
             marker: ">",
             primary: "DIAL " + q,
             onClick: act(function () {
-              dial(q);
+              props.onPlaceCall(q);
             }),
           })
         );
@@ -1026,6 +1035,8 @@
             contacts: contacts,
             onPlaceCall: onPlaceCall,
             onToggleFavorite: onToggleContactFavorite,
+            clientNumbers: props.clientNumbers,
+            onToggleClient: props.onToggleClient,
           })
         : h(PermissionGate, {
             title: "CONTACTS ACCESS REQUIRED",
@@ -1337,11 +1348,12 @@
           pressHandlers: { onPointerDown: function () { lp.onStart(c); }, onPointerUp: lp.onEnd, onPointerLeave: lp.onCancel, onPointerCancel: lp.onCancel, onContextMenu: function (e) { e.preventDefault(); } },
         });
       })),
-      h(Text, { variant: "dim", size: "xs" }, "Toca para llamar · mantén presionado para quitar favorito."),
+      h(Text, { variant: "dim", size: "xs" }, "Toca para llamar · mantén presionado para más opciones."),
       h(Modal, { open: !!selected, title: selected ? (selected.name || selected.number) : "", onClose: function () { setSelected(null); } },
         selected ? h("div", { className: "modal-actions" },
           h(Button, { onClick: function () { onPlaceCall(selected.number); setSelected(null); } }, "LLAMAR"),
           h(Button, { onClick: function () { onToggleFavorite(selected); setSelected(null); } }, "QUITAR DE FAVORITOS"),
+          h(Button, { onClick: function () { props.onToggleClient(selected); setSelected(null); } }, isClient(selected, props.clientNumbers || []) ? "QUITAR DE CLIENTES" : "AGREGAR A CLIENTES"),
           h(Button, { onClick: function () { setSelected(null); } }, "CANCELAR")) : null)
     );
   }
@@ -1422,7 +1434,7 @@
 
     var body;
     if (contacts.length === 0) {
-      body = h(Section, { variant: "inset" }, h(Text, { variant: "dim" }, "NO CONTACTS."));
+      body = h(Section, { variant: "inset" }, h(Text, { variant: "dim" }, props.clientsMode ? "Aún no tienes clientes. Ve a CONTACTS y mantén presionado un contacto para agregarlo a clientes." : "NO CONTACTS."));
     } else if (filtered.length === 0) {
       body = h(Text, { variant: "dim" }, "NO MATCHES.");
     } else {
@@ -1442,8 +1454,8 @@
       "div",
       { className: "stack" },
       h(Input, {
-        label: "SEARCH (" + filtered.length + " / " + contacts.length + ")",
-        placeholder: "filter contacts…",
+        label: (props.clientsMode ? "BUSCAR CLIENTES (" : "SEARCH (") + filtered.length + " / " + contacts.length + ")",
+        placeholder: props.clientsMode ? "Buscar por nombre o teléfono…" : "filter contacts…",
         value: query,
         onChange: function (e) {
           setQuery(e.target.value);
@@ -1457,6 +1469,7 @@
           h(Button,{onClick:function(){callBool("openSms",[selected.number]);selectContact(null);}},"ENVIAR MENSAJE"),
           h(Button,{onClick:function(){if(!callBool("editContact",[selected.number]))showToast("No se pudo abrir el editor");selectContact(null);}},"EDITAR CONTACTO"),
           h(Button,{onClick:function(){onToggleFavorite(selected);selectContact(null);}},selected.favorite?"QUITAR DE FAVORITOS":"AGREGAR A FAVORITOS"),
+          h(Button,{onClick:function(){props.onToggleClient(selected);selectContact(null);}},isClient(selected,props.clientNumbers || [])?"QUITAR DE CLIENTES":"AGREGAR A CLIENTES"),
           h(Button,{onClick:function(){selectContact(null);}},"CANCELAR")):null)
     );
   }
@@ -2750,7 +2763,7 @@
     document.documentElement.classList.toggle("light-mode", options.light);
     ["lock", "unlock", "volume"].forEach(function(k){callBool("configureSound", [k, options[k], false]);});
   }
-  var BACKUP_KEYS = [THEME_KEY, NAV_SOUND_KEY, FAV_KEY, HIDDEN_KEY, OPTIONS_KEY];
+  var BACKUP_KEYS = [THEME_KEY, NAV_SOUND_KEY, FAV_KEY, HIDDEN_KEY, OPTIONS_KEY, CLIENTS_KEY];
   window.addEventListener("pipboy:restore", function(e) {
     try {
       var backup = JSON.parse(e.detail);
@@ -2758,6 +2771,9 @@
       var v = backup.values;
       if (!THEMES[v[THEME_KEY]] || !["0","1"].includes(v[NAV_SOUND_KEY])) throw Error();
       [FAV_KEY,HIDDEN_KEY].forEach(function(k){var a=JSON.parse(v[k]);if(!Array.isArray(a)||a.length>2000||!a.every(function(x){return typeof x==="string";}))throw Error();});
+      if (v[CLIENTS_KEY] == null) v[CLIENTS_KEY] = "[]";
+      var clients = JSON.parse(v[CLIENTS_KEY]);
+      if (!Array.isArray(clients) || !clients.every(function(n){return typeof n === "string";})) throw Error();
       var o=JSON.parse(v[OPTIONS_KEY]);
       ["buttons","lock","unlock","volume"].forEach(function(k){if(!Number.isFinite(o[k])||o[k]<0||o[k]>100)throw Error();});
       if (!Number.isFinite(o.scan)||o.scan<0||o.scan>40||!Number.isFinite(o.spacing)||o.spacing<3||o.spacing>10||typeof o.light!=="boolean")throw Error();
@@ -2779,11 +2795,44 @@
       h(Section,{title:"PANTALLA"},slider("scan","Intensidad de scanlines",0,40),slider("spacing","Separación de líneas",3,10),
         h("div",{className:"grid-3"},Object.keys(THEMES).map(function(k){return h(Button,{key:k,onClick:function(){props.setTheme(k);}},THEMES[k].label);})),
         h(Toggle,{label:"Modo ligero · menos efectos y actualizaciones",checked:o.light,onChange:function(v){props.change(Object.assign({},o,{light:v}));}})),
-      h(Section,{title:"RESPALDO"},h(Text,null,"Guarda colores, favoritos de aplicaciones y preferencias. Los contactos siguen en tu agenda de Android."),
+      h(Section,{title:"RESPALDO"},h(Text,null,"Guarda colores, favoritos de aplicaciones, tu lista de clientes y preferencias. Los contactos siguen en tu agenda de Android."),
         h(Button,{onClick:function(){var values={};BACKUP_KEYS.forEach(function(k){values[k]=lsGetRaw(k,k===OPTIONS_KEY?JSON.stringify(o):k===THEME_KEY?"green":k===NAV_SOUND_KEY?"1":"[]");});callBool("exportPreferences",[JSON.stringify({format:"pipboy-preferences",version:1,values:values})]);}},"EXPORTAR ARCHIVO"),
         h(Button,{onClick:function(){callBool("importPreferences",[]);}},"IMPORTAR ARCHIVO")),
       h(Button,{onClick:function(){openSettings("settings");}},"AJUSTES DE ANDROID"),
       h(Button,{onClick:props.close},"VOLVER AL INICIO"));
+  }
+
+  function HomeCalendar() {
+    // App's live clock rerenders this view, including at midnight/month changes.
+    var today = new Date();
+    var year = today.getFullYear(), month = today.getMonth();
+    var months = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+    var weekdays = ["LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB", "DOM"];
+    var offset = (new Date(year, month, 1).getDay() + 6) % 7;
+    var count = new Date(year, month + 1, 0).getDate();
+    var rows = [];
+    for (var start = 0; start < offset + count; start += 7) {
+      var cells = [];
+      for (var col = 0; col < 7; col++) {
+        var day = start + col - offset + 1;
+        var valid = day > 0 && day <= count;
+        var current = valid && day === today.getDate();
+        cells.push(h("td", {
+          key: col,
+          className: current ? "home-calendar__today" : undefined,
+          "aria-current": current ? "date" : undefined,
+          "aria-label": current ? "Hoy, " + day + " de " + months[month].toLowerCase() : undefined
+        }, valid ? day : null));
+      }
+      rows.push(h("tr", { key: start }, cells));
+    }
+    return h(Section, { title: "CALENDARIO" },
+      h("table", { className: "home-calendar" },
+        h("caption", null, months[month] + " " + year),
+        h("thead", null, h("tr", null, weekdays.map(function (day) {
+          return h("th", { key: day, scope: "col" }, day);
+        }))),
+        h("tbody", null, rows)));
   }
 
   function App() {
@@ -2839,11 +2888,19 @@
     var statsState = useState(null);
     var appsState = useState([]);
     var callLogState = useState([]);
+    var clientState = useState(function () {
+      var saved = lsGet(CLIENTS_KEY, []);
+      return Array.isArray(saved) ? saved.filter(function (n) { return typeof n === "string"; }) : [];
+    });
+    var clientNumbers = clientState[0];
     var contactsState = useState([]);
     var smsState = useState([]);
     var permsState = useState({ callLog: false, contacts: false, phone: false, sms: false });
     var flashState = useState(false);
     var actionPkgState = useState(null);
+    var pendingCallState = useState(null);
+    var pendingCall = pendingCallState[0];
+    var pendingCallRef = useRef(null);
 
     var usageState = useState([]);
     var notifsState = useState([]);
@@ -2871,6 +2928,7 @@
     var apps = appsState[0], setApps = appsState[1];
     var callLog = callLogState[0], setCallLog = callLogState[1];
     var contacts = contactsState[0], setContacts = contactsState[1];
+    var clients = contacts.filter(function (c) { return isClient(c, clientNumbers); });
     var sms = smsState[0], setSms = smsState[1];
     var perms = permsState[0], setPerms = permsState[1];
     var clock = clockState[0], setClock = clockState[1];
@@ -3005,10 +3063,28 @@
       [refreshAll, refreshStats, tickTraffic, refreshSms]
     );
 
-    // Place a call: prefer in-app callPlace (default-dialer), fall back to dial.
+    // Every outgoing call requested by the UI must be confirmed first.
     var placeCall = useCallback(function (number) {
-      if (!number) return;
-      if (!callPlace(number)) dial(number);
+      var value = String(number || "").trim();
+      if (!value || pendingCallRef.current) return;
+      var contact = contacts.find(function (c) { return clientKey(c) === clientKey({ number: value }); });
+      var request = { number: value, name: contact ? contact.name : "" };
+      pendingCallRef.current = request;
+      pendingCallState[1](request);
+    }, [contacts]);
+
+    var cancelCall = useCallback(function () {
+      pendingCallRef.current = null;
+      pendingCallState[1](null);
+    }, []);
+
+    var confirmCall = useCallback(function () {
+      var request = pendingCallRef.current;
+      if (!request) return;
+      // Consume before invoking Android so repeated taps cannot call twice.
+      pendingCallRef.current = null;
+      pendingCallState[1](null);
+      if (!callPlace(request.number)) dial(request.number);
     }, []);
 
     var toggleContactFavorite = useCallback(function (contact) {
@@ -3023,6 +3099,20 @@
         playNavSound("error");
       }
     }, []);
+
+    var toggleClient = useCallback(function (contact) {
+      var key = clientKey(contact);
+      if (!key) return;
+      var removing = clientNumbers.indexOf(key) !== -1;
+      var next = removing ? clientNumbers.filter(function (n) { return n !== key; }) : clientNumbers.concat([key]);
+      try {
+        window.localStorage.setItem(CLIENTS_KEY, JSON.stringify(next));
+        clientState[1](next);
+        showToast(removing ? "Quitado de clientes" : "Agregado a clientes");
+      } catch (e) {
+        showToast("No se pudo guardar la lista de clientes");
+      }
+    }, [clientNumbers]);
 
     // When switching into STAT, fetch the heavier network/audio/display data.
     useEffect(
@@ -3088,12 +3178,27 @@
     var body;
     if (tab === "settings") {
       body=h(PersonalSettings,{options:options,change:changeOptions,navSound:navSound,setNavSound:setNavSound,setTheme:setTheme,close:function(){setTab("home");}});
+    } else if (tab === "clients") {
+      body = h("div", { className: "stack" },
+        h(Heading, { level: 2 }, "MIS CLIENTES"),
+        h(Button, { onClick: function () { setTab("home"); } }, "VOLVER A INICIO"),
+        perms.contacts ? h(Contacts, {
+          contacts: clients, clientsMode: true, clientNumbers: clientNumbers,
+          onToggleClient: toggleClient, onPlaceCall: placeCall, onToggleFavorite: toggleContactFavorite,
+        }) : h(PermissionGate, {
+          title: "ACCESO A CONTACTOS", message: "Permite el acceso a tu agenda para ver tus clientes.",
+          actionLabel: "DAR ACCESO", onAction: act(requestPermissions),
+        }),
+        h(Button, { onClick: function () { setTab("data"); setDataTab("contacts"); } }, "IR A CONTACTOS"));
     } else if (tab === "home") {
       body=h("div",{className:"stack"},
-        h(Section,{title:"TU PIP-BOY"},h(Heading,{level:2},"BIENVENIDO, ALLAN"),h(Text,null,"Batería: "+(stats?stats.batteryPct:"--")+"%"),h(Text,null,"Próxima alarma: "+(function(){try{return hasBridge()?bridge().nextAlarm():"Sin datos";}catch(e){return "Sin datos";}})())),
+        h("p",{className:"home-greeting"},"Buenos días, Allan"),
+        h(HomeCalendar),
+        h("div",{className:"home-device-info"},h(Text,{size:"sm"},"Batería: "+(stats?stats.batteryPct:"--")+"%"),h(Text,{size:"sm"},"Próxima alarma: "+(function(){try{return hasBridge()?bridge().nextAlarm():"Sin datos";}catch(e){return "Sin datos";}})())),
         h(Section,{title:"APLICACIONES FAVORITAS"},favorites.length?h("div",{className:"grid-3"},favorites.map(function(pkg){var a=findApp(apps,pkg);return a?h(Button,{key:pkg,onClick:function(){launchApp(pkg);}},appLabelOf(a)):null;})):h(Text,null,"Mantén presionada una app en APPS para fijarla.")),
+        h(Button,{onClick:function(){setTab("clients");}},"MIS CLIENTES ("+clients.length+")"),
         h("div",{className:"home-communications"},
-          h(Section,{title:"CONTACTOS RÁPIDOS",className:"home-communications__panel"},h(HomeQuickContacts,{contacts:contacts.filter(function(c){return c.favorite;}),onPlaceCall:placeCall,onToggleFavorite:toggleContactFavorite})),
+          h(Section,{title:"CONTACTOS RÁPIDOS",className:"home-communications__panel"},h(HomeQuickContacts,{contacts:contacts.filter(function(c){return c.favorite;}),onPlaceCall:placeCall,onToggleFavorite:toggleContactFavorite,clientNumbers:clientNumbers,onToggleClient:toggleClient})),
           h(Section,{title:"LLAMADAS RECIENTES",className:"home-communications__panel"},
             h(HomeRecentCalls,{entries:callLog,hasAccess:perms.callLog,onPlaceCall:placeCall}),
             h(Button,{onClick:goCalls},"VER TODAS"))),
@@ -3111,6 +3216,8 @@
         onDismiss: dismissAndRefresh,
         onPlaceCall: placeCall,
         onToggleContactFavorite: toggleContactFavorite,
+        clientNumbers: clientNumbers,
+        onToggleClient: toggleClient,
         smsNonce: smsNonce,
       });
     } else if (tab === "term") {
@@ -3137,6 +3244,7 @@
         usage: usage,
         access: access,
         onLaunch: launchApp,
+        onPlaceCall: placeCall,
         onLongPress: function (pkg) {
           playNavSound("open");
           setActionPkg(pkg);
@@ -3283,6 +3391,14 @@
       ),
       h(NotifPopups, { onOpen: openNotification }),
       h(InCallOverlay, null),
+      h(Modal, { open: !!pendingCall, title: "CONFIRMAR LLAMADA", onClose: cancelCall },
+        pendingCall ? h("div", { className: "stack" },
+          h(Text, null, "¿Quieres llamar a este contacto o número?"),
+          pendingCall.name ? h(Text, { variant: "bright" }, pendingCall.name) : null,
+          h(Text, { variant: "bright" }, pendingCall.number),
+          h("div", { className: "modal-actions" },
+            h(Button, { onClick: cancelCall }, "CANCELAR"),
+            h(Button, { variant: "primary", onClick: confirmCall }, "SÍ, LLAMAR"))) : null),
       modal
     );
   }

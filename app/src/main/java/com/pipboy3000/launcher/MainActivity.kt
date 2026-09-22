@@ -15,6 +15,7 @@ import android.webkit.WebResourceResponse
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import com.pipboy3000.launcher.telephony.call.CallNotifications
 import com.pipboy3000.launcher.telephony.call.CallStore
 import com.pipboy3000.launcher.telephony.sms.SmsFeature
 import android.webkit.WebSettings
@@ -139,6 +140,7 @@ class MainActivity : ComponentActivity() {
      */
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            CallNotifications.refresh(this)
             dispatchRefresh()
         }
 
@@ -209,6 +211,15 @@ class MainActivity : ComponentActivity() {
 
         // A cold start triggered by the Recents redirect carries this extra.
         handleOpenIntent(intent)
+        // Request once after upgrading; Android 13+ requires this for call controls.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            val prefs = getSharedPreferences("call_notifications", MODE_PRIVATE)
+            if (!prefs.getBoolean("permission_requested", false)) {
+                prefs.edit().putBoolean("permission_requested", true).apply()
+                permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+            }
+        }
     }
 
     private fun createWebView(): WebView {
@@ -348,7 +359,8 @@ class MainActivity : ComponentActivity() {
 
     /** Passed to LauncherBridge; the web UI calls this via AndroidBridge.requestPermissions(). */
     private fun requestCorePermissions() {
-        permissionLauncher.launch(corePermissions)
+        val permissions = if (Build.VERSION.SDK_INT >= 33) corePermissions + Manifest.permission.POST_NOTIFICATIONS else corePermissions
+        permissionLauncher.launch(permissions)
     }
 
     private fun registerScreenSoundReceiver() {

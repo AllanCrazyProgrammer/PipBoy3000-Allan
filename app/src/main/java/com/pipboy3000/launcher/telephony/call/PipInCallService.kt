@@ -24,6 +24,7 @@ class PipInCallService : InCallService() {
             CallStore.setCall(call)
             CallStore.emit()
             bringLauncherToFront()
+            CallNotifications.add(this, call)
         } catch (e: Throwable) {
             // swallow
         }
@@ -35,6 +36,7 @@ class PipInCallService : InCallService() {
             val next = calls.firstOrNull { it !== call && !isFinished(it) }
             CallStore.setCall(next)
             CallStore.emit()
+            CallNotifications.remove(this, call)
         } catch (e: Throwable) {
             // swallow
         }
@@ -52,6 +54,7 @@ class PipInCallService : InCallService() {
     override fun onDestroy() {
         try {
             CallStore.detachService(this)
+            CallNotifications.clear(this)
         } catch (e: Throwable) {
             // swallow
         }
