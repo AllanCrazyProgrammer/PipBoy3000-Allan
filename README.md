@@ -3,8 +3,9 @@
 Personalización de Allan basada en el proyecto original
 [9hm2/PipBoy3000](https://github.com/9hm2/PipBoy3000).
 
-La rama principal conserva la versión **v1.2.1**. El APK listo para instalar
-está incluido en `releases/PipBoy3000-Allan-v1.2.1.apk`.
+La rama principal conserva la versión **v1.3.0**. El APK listo para instalar
+de v1.2.1 está incluido en `releases/PipBoy3000-Allan-v1.2.1.apk`; el de
+v1.3.0 se genera con el workflow **Build** (Actions → Run workflow).
 
 A full Android **launcher** styled after the Fallout Pip-Boy. The UI is the real,
 exported **Pip-Boy Design System** (HTML/CSS/JS) rendered inside a native WebView
@@ -24,13 +25,41 @@ history, and live device readouts.
 - **Device stats** — battery, storage, RAM, and a live clock on the STAT tab.
 - **Quick settings / flashlight** — fast toggles for common controls.
 
-## Allan v1.2.1
+## Allan v1.3.0
 
 - Android favorite contacts displayed in a two-column grid.
 - Phone-number normalization prevents duplicate favorite contacts.
 - Fallout-style navigation sounds and selectable Pip-Boy color themes.
 - Tappable notification rows open their content or fall back to the source app.
 - Android 14 background-launch handling for notification actions.
+- **Rey Pez (solo lectura):** la pantalla INICIO muestra el pedido limpio
+  y crudo del día y los saldos de Joselito, Otilio, Catarro, Ozuna y
+  Verónica, leídos de la API del asistente de Rey Pez. Detalle en
+  [Rey Pez](#rey-pez-solo-lectura).
+
+## Rey Pez (solo lectura)
+
+El launcher lee, nunca escribe. En INICIO aparece la sección
+**REY PEZ — HOY** con el pedido limpio (taras y kilos totales, líneas y
+medidas por cliente), el pedido crudo (taras y kilos, por cliente) y los
+saldos (total del día y saldo acumulado; "sin cuenta hoy" cuando el
+cliente aún no tiene cuenta ese día). Se actualiza al entrar a INICIO,
+con caché de 5 minutos, y tiene botón ACTUALIZAR.
+
+**Clave:** la API exige la clave del asistente (`ASISTENTE_API_KEY`).
+Allan la pega en **Ajustes → REY PEZ → GUARDAR CLAVE**, en su propio
+teléfono. Se guarda cifrada en el teléfono
+(`EncryptedSharedPreferences`) y **nunca** va al repo, a un log ni a la
+UI web. Sin clave, la sección solo muestra el aviso y el botón a
+Ajustes. La clave de Allan está en Secret Manager del proyecto
+`reypezapp-1ced2`, secreto `ASISTENTE_API_KEY`.
+
+**Cómo funciona por dentro:** el puente nativo (`ReyPezClient.kt`)
+hace los GETs con `HttpURLConnection` — `GET /pedidos/limpio`,
+`GET /pedidos/crudo` y `GET /cuentas` por cliente — y devuelve un solo
+JSON resumido a la UI. La UI web nunca ve la clave ni llama a la API
+directo. Requiere internet: el manifiesto declara `INTERNET` (permiso
+normal, sin diálogo).
 
 ## Architecture
 

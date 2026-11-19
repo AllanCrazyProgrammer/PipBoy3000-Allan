@@ -1662,6 +1662,34 @@ class LauncherBridge(
     }
 
     // ---------------------------------------------------------------------
+    // Rey Pez (solo lectura)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Resumen del día de Rey Pez: pedido limpio + crudo + saldos por
+     * cliente, leído por [ReyPezClient] desde la API del asistente.
+     * Solo GETs; la clave la guarda Allan en Ajustes, en el teléfono.
+     * Ver ReyPezClient.kt para el formato del JSON y los errores.
+     */
+    private val reyPezClient by lazy { ReyPezClient(activity) }
+
+    @JavascriptInterface
+    fun reyPezHasKey(): Boolean = try { reyPezClient.hasApiKey() } catch (e: Exception) { false }
+
+    @JavascriptInterface
+    fun reyPezSetKey(key: String): Boolean = try { reyPezClient.setApiKey(key) } catch (e: Exception) { false }
+
+    @JavascriptInterface
+    fun reyPezClearKey(): Boolean = try { reyPezClient.clearApiKey() } catch (e: Exception) { false }
+
+    @JavascriptInterface
+    fun reyPezResumen(fecha: String): String = try {
+        reyPezClient.getResumen(fecha)
+    } catch (e: Exception) {
+        "{\"ok\":false,\"error\":\"ERROR_RED\"}"
+    }
+
+    // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
 

@@ -233,6 +233,20 @@
       notificationAccess: false,
     });
   }
+  // Rey Pez (solo lectura): el puente hace los GETs en nativo; la clave
+  // vive cifrada en el teléfono y nunca llega a esta UI como valor.
+  function reyPezHasKey() {
+    return callBool("reyPezHasKey", []);
+  }
+  function reyPezSetKey(key) {
+    return callBool("reyPezSetKey", [key]);
+  }
+  function reyPezClearKey() {
+    return callBool("reyPezClearKey", []);
+  }
+  function getReyPezResumen(fecha) {
+    return callJson("reyPezResumen", [fecha], null);
+  }
   function launchApp(pkg) {
     callBool("launchApp", [pkg]);
   }
@@ -2783,6 +2797,10 @@
   });
   function PersonalSettings(props) {
     var o = props.options;
+    // Clave de Rey Pez: solo se escribe aquí; el campo se vacía al guardar
+    // y la clave guardada nunca se muestra.
+    var reyKeyState = useState("");
+    var reyKey = reyKeyState[0], setReyKey = reyKeyState[1];
     function slider(key,label,min,max) {
       return h("label",{className:"personal-slider"}, label + ": " + o[key],
         h("input",{type:"range",min:min,max:max,value:o[key],onChange:function(e){props.change(Object.assign({},o,{[key]:Number(e.target.value)}));}}));
@@ -2798,8 +2816,107 @@
       h(Section,{title:"RESPALDO"},h(Text,null,"Guarda colores, favoritos de aplicaciones, tu lista de clientes y preferencias. Los contactos siguen en tu agenda de Android."),
         h(Button,{onClick:function(){var values={};BACKUP_KEYS.forEach(function(k){values[k]=lsGetRaw(k,k===OPTIONS_KEY?JSON.stringify(o):k===THEME_KEY?"green":k===NAV_SOUND_KEY?"1":"[]");});callBool("exportPreferences",[JSON.stringify({format:"pipboy-preferences",version:1,values:values})]);}},"EXPORTAR ARCHIVO"),
         h(Button,{onClick:function(){callBool("importPreferences",[]);}},"IMPORTAR ARCHIVO")),
+      h(Section,{title:"REY PEZ"},h(Text,null,"Solo lectura: pedido del día y saldos de clientes. La clave se guarda cifrada solo en este teléfono y nunca se sube al repo. Consíguela en Secret Manager del proyecto reypezapp-1ced2 (secreto ASISTENTE_API_KEY)."),
+        h(Text,null,props.reyPezConfigured?"Clave guardada.":"Sin clave configurada."),
+        h(Input,{label:"CLAVE REY PEZ",placeholder:"Pega tu clave aquí…",value:reyKey,onChange:function(e){setReyKey(e.target.value);}}),
+        h(Button,{onClick:function(){if(props.onSaveReyPezKey && props.onSaveReyPezKey(reyKey)) setReyKey("");}},"GUARDAR CLAVE"),
+        props.reyPezConfigured?h(Button,{onClick:function(){if(props.onClearReyPezKey) props.onClearReyPezKey();}},"QUITAR CLAVE"):null),
       h(Button,{onClick:function(){openSettings("settings");}},"AJUSTES DE ANDROID"),
       h(Button,{onClick:props.close},"VOLVER AL INICIO"));
+  }
+
+  /* ====================================================== Rey Pez (solo lectura) */
+  // Fecha local de hoy en YYYY-MM-DD (la API espera la fecha de Tampico,
+  // que es la zona del teléfono).
+  function reyPezToday() {
+    var d = new Date();
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+  function formatMoney(n) {
+    if (n == null || !isFinite(Number(n))) return "—";
+    return "$" + Math.round(Number(n)).toLocaleString("es-MX");
+  }
+  var REY_PEZ_ERRORS = {
+    SIN_CLAVE: "Sin clave de Rey Pez. Configúrala en Ajustes.",
+    SIN_INTERNET: "Sin internet. Revisa tu conexión e inténtalo de nuevo.",
+    CLAVE_INVALIDA: "La clave de Rey Pez no fue aceptada. Revísala en Ajustes.",
+    TIMEOUT: "Rey Pez tardó demasiado en responder. Inténtalo de nuevo.",
+    ERROR_RED: "No se pudo leer Rey Pez. Inténtalo de nuevo.",
+    FECHA_INVALIDA: "Fecha inválida.",
+  };
+  function ReyPezSection(props) {
+    var status = props.status;
+    var data = props.data;
+    function updatedLine() {
+      if (!props.updatedAt) return null;
+      var d = new Date(props.updatedAt);
+      function p(n) { return (n < 10 ? "0" : "") + n; }
+      return h(Text, { as: "div", variant: "dim", size: "xs" },
+        "Actualizado " + p(d.getHours()) + ":" + p(d.getMinutes()));
+    }
+    if (status === "sin-clave" || (!props.hasKey && status !== "ok")) {
+      return h(Section, { title: "REY PEZ — HOY" },
+        h(Text, null, "Conecta tu clave de Rey Pez en Ajustes para ver el pedido del día y los saldos."),
+        h(Button, { onClick: props.onGoSettings }, "IR A AJUSTES"));
+    }
+    if (status === "cargando") {
+      return h(Section, { title: "REY PEZ — HOY" },
+        h(Text, null, "Cargando pedido de hoy…"));
+    }
+    if (status === "error" || !data || data.ok !== true) {
+      return h(Section, { title: "REY PEZ — HOY" },
+        h(Text, null, REY_PEZ_ERRORS[props.error] || REY_PEZ_ERRORS.ERROR_RED),
+        h(Button, { onClick: function () { props.onRefresh(true); } }, "REINTENTAR"));
+    }
+    var limpio = data.limpio || {};
+    var crudo = data.crudo || {};
+    var cuentas = data.cuentas || [];
+    function limpioRows() {
+      if (!limpio.exists) return [h(Text, { key: "none", as: "div", size: "sm" }, "Sin pedido limpio hoy.")];
+      var rows = [h(Text, { key: "total", as: "div", size: "sm" },
+        "LIMPIO: " + (limpio.taras || 0) + " taras · " + Number(limpio.kilos || 0).toLocaleString("es-MX") + " kg")];
+      (limpio.porCliente || []).forEach(function (c) {
+        rows.push(h(Text, { key: c.cliente, as: "div", size: "sm" },
+          c.nombre + " — " + c.lineas + (c.lineas === 1 ? " línea" : " líneas") +
+          ((c.medidas && c.medidas.length) ? " · " + c.medidas.join(", ") : "")));
+      });
+      return rows;
+    }
+    function crudoRows() {
+      if (!crudo.exists) return [h(Text, { key: "none", as: "div", size: "sm" }, "Sin pedido crudo hoy.")];
+      var rows = [h(Text, { key: "total", as: "div", size: "sm" },
+        "CRUDO: " + (crudo.taras || 0) + " taras · " + Number(crudo.kilos || 0).toLocaleString("es-MX") + " kg")];
+      var conTar = (crudo.porCliente || []).filter(function (c) { return c.taras > 0; });
+      if (!conTar.length) rows.push(h(Text, { key: "none2", as: "div", size: "sm" }, "Sin crudos por cliente."));
+      conTar.forEach(function (c) {
+        var nombre = c.cliente === "veronica" ? "Verónica" : c.cliente.charAt(0).toUpperCase() + c.cliente.slice(1);
+        rows.push(h(Text, { key: c.cliente, as: "div", size: "sm" },
+          nombre + " — " + c.taras + (c.taras === 1 ? " tara" : " taras")));
+      });
+      return rows;
+    }
+    function saldoRows() {
+      return cuentas.map(function (c) {
+        if (!c.tieneCuenta) {
+          return h(Text, { key: c.cliente, as: "div", size: "sm" }, c.nombre + " — sin cuenta hoy");
+        }
+        var partes = [];
+        if (c.totalDia != null) partes.push("día " + formatMoney(c.totalDia));
+        if (c.saldoAcumulado != null) partes.push("acum. " + formatMoney(c.saldoAcumulado));
+        return h(Text, { key: c.cliente, as: "div", size: "sm" },
+          c.nombre + " — " + (partes.length ? partes.join(" · ") : "sin saldo"));
+      });
+    }
+    return h(Section, { title: "REY PEZ — HOY" },
+      limpioRows(),
+      h("div", { style: { height: 8 } }),
+      crudoRows(),
+      h("div", { style: { height: 8 } }),
+      h(Text, { as: "div", variant: "dim", size: "xs" }, "SALDOS"),
+      saldoRows(),
+      updatedLine(),
+      h(Button, { onClick: function () { props.onRefresh(true); } }, "ACTUALIZAR"));
   }
 
   function HomeCalendar() {
@@ -2909,6 +3026,11 @@
     var audioState = useState(null);
     var displayState = useState(null);
 
+    // Rey Pez (solo lectura): resumen del día + si hay clave guardada.
+    var reyPezState = useState({ status: "idle", data: null, error: null, updatedAt: null });
+    var reyPezKeyState = useState(false);
+    var reyPezLastFetchRef = useRef(0);
+
     // Live local clock (1s) — independent of the 10s stats poll.
     var clockState = useState(function () {
       return clockNow();
@@ -2942,6 +3064,8 @@
     var display = displayState[0], setDisplay = displayState[1];
     var favorites = favState[0], setFavorites = favState[1];
     var hidden = hiddenState[0], setHidden = hiddenState[1];
+    var reyPez = reyPezState[0], setReyPez = reyPezState[1];
+    var reyPezConfigured = reyPezKeyState[0], setReyPezConfigured = reyPezKeyState[1];
 
     var tabRef = useRef(tab);
     tabRef.current = tab;
@@ -3016,9 +3140,37 @@
       setSms(getPermissions().sms ? getSms(80) : []);
     }, []);
 
+    // Rey Pez: solo lectura. Sin clave no se llama a la red. Con caché
+    // de 5 minutos; el botón ACTUALIZAR fuerza con force=true. La llamada
+    // al puente es síncrona, así que primero se pinta "cargando" y la
+    // lectura corre en el siguiente tick.
+    var refreshReyPez = useCallback(function (force) {
+      var hasKey = reyPezHasKey();
+      setReyPezConfigured(hasKey);
+      if (!hasKey) {
+        setReyPez({ status: "sin-clave", data: null, error: null, updatedAt: null });
+        return;
+      }
+      var now = Date.now();
+      if (!force && reyPezLastFetchRef.current && now - reyPezLastFetchRef.current < 5 * 60 * 1000) return;
+      setReyPez(function (prev) {
+        return { status: "cargando", data: prev.data, error: null, updatedAt: prev.updatedAt };
+      });
+      setTimeout(function () {
+        var res = getReyPezResumen(reyPezToday());
+        reyPezLastFetchRef.current = Date.now();
+        if (!res || res.ok !== true) {
+          setReyPez({ status: "error", data: null, error: (res && res.error) || "ERROR_RED", updatedAt: null });
+          return;
+        }
+        setReyPez({ status: "ok", data: res, error: null, updatedAt: res.fetchedAt || Date.now() });
+      }, 50);
+    }, []);
+
     useEffect(
       function () {
         refreshAll();
+        refreshReyPez(false);
         function onRefresh() {
           refreshAll();
         }
@@ -3060,7 +3212,7 @@
           document.removeEventListener("visibilitychange",visibilityRefresh);
         };
       },
-      [refreshAll, refreshStats, tickTraffic, refreshSms]
+      [refreshAll, refreshStats, tickTraffic, refreshSms, refreshReyPez]
     );
 
     // Every outgoing call requested by the UI must be confirmed first.
@@ -3122,6 +3274,14 @@
       [tab, refreshStatDetail]
     );
 
+    // When switching into INICIO, refresh the Rey Pez summary (cached).
+    useEffect(
+      function () {
+        if (tab === "home") refreshReyPez(false);
+      },
+      [tab, refreshReyPez]
+    );
+
     // ---- favorites / hidden mutators ----
     var toggleFavorite = useCallback(function (pkg) {
       setFavorites(function (prev) {
@@ -3177,7 +3337,25 @@
 
     var body;
     if (tab === "settings") {
-      body=h(PersonalSettings,{options:options,change:changeOptions,navSound:navSound,setNavSound:setNavSound,setTheme:setTheme,close:function(){setTab("home");}});
+      body=h(PersonalSettings,{options:options,change:changeOptions,navSound:navSound,setNavSound:setNavSound,setTheme:setTheme,close:function(){setTab("home");},
+        reyPezConfigured:reyPezConfigured,
+        onSaveReyPezKey:function(key){
+          if (reyPezSetKey(key)) {
+            setReyPezConfigured(true);
+            showToast("Clave de Rey Pez guardada");
+            refreshReyPez(true);
+            return true;
+          }
+          showToast("No se pudo guardar la clave");
+          return false;
+        },
+        onClearReyPezKey:function(){
+          if (reyPezClearKey()) {
+            setReyPezConfigured(false);
+            setReyPez({status:"sin-clave",data:null,error:null,updatedAt:null});
+            showToast("Clave de Rey Pez quitada");
+          }
+        }});
     } else if (tab === "clients") {
       body = h("div", { className: "stack" },
         h(Heading, { level: 2 }, "MIS CLIENTES"),
@@ -3195,6 +3373,7 @@
         h("p",{className:"home-greeting"},"Buenos días, Allan"),
         h(HomeCalendar),
         h("div",{className:"home-device-info"},h(Text,{size:"sm"},"Batería: "+(stats?stats.batteryPct:"--")+"%"),h(Text,{size:"sm"},"Próxima alarma: "+(function(){try{return hasBridge()?bridge().nextAlarm():"Sin datos";}catch(e){return "Sin datos";}})())),
+        h(ReyPezSection,{data:reyPez.data,status:reyPez.status,error:reyPez.error,updatedAt:reyPez.updatedAt,hasKey:reyPezConfigured,onRefresh:refreshReyPez,onGoSettings:function(){setTab("settings");}}),
         h(Section,{title:"APLICACIONES FAVORITAS"},favorites.length?h("div",{className:"grid-3"},favorites.map(function(pkg){var a=findApp(apps,pkg);return a?h(Button,{key:pkg,onClick:function(){launchApp(pkg);}},appLabelOf(a)):null;})):h(Text,null,"Mantén presionada una app en APPS para fijarla.")),
         h(Button,{onClick:function(){setTab("clients");}},"MIS CLIENTES ("+clients.length+")"),
         h("div",{className:"home-communications"},

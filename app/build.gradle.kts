@@ -13,8 +13,8 @@ android {
         minSdk = 26
         targetSdk = 34
         testInstrumentationRunner = "com.pipboy3000.launcher.telephony.call.CallNotificationSmokeTest"
-        versionCode = 5
-        versionName = "1.2.1"
+        versionCode = 6
+        versionName = "1.3.0"
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
@@ -76,6 +76,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity-ktx:1.9.2")
+    // EncryptedSharedPreferences: la clave de Rey Pez se guarda cifrada
+    // en el teléfono (ver ReyPezClient.kt). Nunca va al repo.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     // WebViewAssetLoader: serve bundled design assets over https://appassets/.
     implementation("androidx.webkit:webkit:1.11.0")
 }

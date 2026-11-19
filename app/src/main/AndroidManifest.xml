@@ -2,6 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Rey Pez (solo lectura): la API del asistente es HTTPS. Sin este
+         permiso el cliente no puede salir a la red. Es un permiso normal,
+         no pide nada al usuario. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- See every installed app so the inventory (app drawer) is complete. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
