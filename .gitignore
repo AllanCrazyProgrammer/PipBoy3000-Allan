@@ -21,7 +21,14 @@ local.properties
 *.ap_
 *.dex
 *.keystore
+!debug.keystore
 *.jks
 
 # Signing keys stay private. The Gradle wrapper remains committed so CI and
 # clean clones can build.
+# Excepción: debug.keystore SÍ va al repo. Es una clave SOLO de debug,
+# generada para CI con las credenciales convencionales de debug
+# ("android"/"androiddebugkey"), igual que la debug key que Android genera
+# en cada máquina. Todos los Builds de CI firman con ella para que los APK
+# compartan firma y la actualización in-app funcione. NUNCA va aquí la
+# clave privada de release de Allan.

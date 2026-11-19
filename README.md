@@ -3,9 +3,10 @@
 Personalización de Allan basada en el proyecto original
 [9hm2/PipBoy3000](https://github.com/9hm2/PipBoy3000).
 
-La rama principal conserva la versión **v1.3.0**. El APK listo para instalar
+La rama principal conserva la versión **v1.4.0**. El APK listo para instalar
 de v1.2.1 está incluido en `releases/PipBoy3000-Allan-v1.2.1.apk`; el de
-v1.3.0 se genera con el workflow **Build** (Actions → Run workflow).
+v1.4.0 se genera con el workflow **Build** (Actions → Run workflow), y
+desde v1.4.0 la app misma avisa y actualiza desde Ajustes.
 
 A full Android **launcher** styled after the Fallout Pip-Boy. The UI is the real,
 exported **Pip-Boy Design System** (HTML/CSS/JS) rendered inside a native WebView
@@ -24,6 +25,20 @@ history, and live device readouts.
 - **Contacts + dialing** — browse contacts and place calls.
 - **Device stats** — battery, storage, RAM, and a live clock on the STAT tab.
 - **Quick settings / flashlight** — fast toggles for common controls.
+
+## Allan v1.4.0
+
+- **Actualización in-app:** Ajustes revisa el Release más reciente de
+  GitHub y, si hay versión nueva, muestra ACTUALIZAR: descarga el APK y
+  abre el instalador del sistema, sin bajar el APK a mano. El workflow
+  Build escribe versionName y versionCode en el cuerpo del Release para
+  que la app compare.
+- **Firma compartida de CI:** el repo incluye `debug.keystore`, una clave
+  SOLO de debug generada para CI (credenciales convencionales de debug).
+  Todos los Builds firman con ella, así que los APK comparten firma y la
+  actualización in-app instala encima. Sin ella cada runner firmaba con
+  su propia clave y Android rechazaba el APK ("conflicto con un
+  paquete"). La clave privada de release de Allan nunca va al repo.
 
 ## Allan v1.3.0
 
