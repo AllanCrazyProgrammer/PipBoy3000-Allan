@@ -58,6 +58,14 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # La app (v1.4.0) lee versionName/versionCode del cuerpo del Release
+      # para saber si hay actualización. Se leen de build.gradle.kts.
+      - name: Read app version
+        id: app_version
+        run: |
+          echo "version_name=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*\"([^\"]+)\"/\1/')" >> $GITHUB_OUTPUT
+          echo "version_code=$(grep -m1 'versionCode' app/build.gradle.kts | sed -E 's/[^0-9]*([0-9]+).*/\1/')" >> $GITHUB_OUTPUT
+
       - name: Assemble ${{ inputs.build_type }} APK
         run: |
           if [ "${{ inputs.build_type }}" = "release" ]; then
@@ -78,11 +86,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: PIP-BOY 3000 — ${{ inputs.build_type }} build #${{ github.run_number }}
+          name: PIP-BOY 3000 v${{ steps.app_version.outputs.version_name }} — ${{ inputs.build_type }} build #${{ github.run_number }}
           body: |
             Automated ${{ inputs.build_type }} build of PIP-BOY 3000.
 
             - Commit: ${{ github.sha }}
+            - versionName: ${{ steps.app_version.outputs.version_name }}
+            - versionCode: ${{ steps.app_version.outputs.version_code }}
             - CI build for testing; official update APKs are signed separately.
             - Install with: `adb install <apk>`
           files: app/build/outputs/apk/${{ inputs.build_type }}/*.apk
