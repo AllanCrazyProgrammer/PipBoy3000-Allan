@@ -38,11 +38,22 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      # NO usar android-actions/setup-android@v3: corre `sdkmanager tools`
+      # y Google ya quitó el paquete `tools` ("Failed to find package
+      # 'tools'", exit code 1). Lo mismo tumbó el workflow de rey-pez-app
+      # el 2026-11-12. El runner ubuntu-latest ya trae el SDK preinstalado
+      # en /usr/local/lib/android/sdk; aquí solo se expone en PATH y se
+      # instalan las piezas que el build necesita.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK + CMake (native PTY for the terminal)
-        run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+        run: |
+          SDK=/usr/local/lib/android/sdk
+          echo "ANDROID_HOME=$SDK" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$SDK" >> $GITHUB_ENV
+          TOOLS=$(ls -d $SDK/cmdline-tools/* | sort -V | tail -1)
+          echo "$TOOLS/bin" >> $GITHUB_PATH
+          echo "$SDK/platform-tools" >> $GITHUB_PATH
+          yes | "$TOOLS/bin/sdkmanager" --licenses > /dev/null || true
+          "$TOOLS/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
