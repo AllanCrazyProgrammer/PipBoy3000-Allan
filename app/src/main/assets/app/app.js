@@ -247,6 +247,23 @@
   function getReyPezResumen(fecha) {
     return callJson("reyPezResumen", [fecha], null);
   }
+  // Actualización in-app (v1.4.0): el puente revisa el Release más
+  // reciente de GitHub y descarga/instala el APK desde Ajustes.
+  function getAppVersion() {
+    return callJson("getAppVersion", [], { versionCode: 0, versionName: "" });
+  }
+  function checkAppUpdate() {
+    return callJson("checkAppUpdate", [], null);
+  }
+  function startAppUpdate(apkUrl) {
+    return callBool("startAppUpdate", [apkUrl]);
+  }
+  function canInstallPackages() {
+    return callBool("canInstallPackages", []);
+  }
+  function openInstallPermissionSettings() {
+    return callBool("openInstallPermissionSettings", []);
+  }
   function launchApp(pkg) {
     callBool("launchApp", [pkg]);
   }
@@ -2816,6 +2833,20 @@
       h(Section,{title:"RESPALDO"},h(Text,null,"Guarda colores, favoritos de aplicaciones, tu lista de clientes y preferencias. Los contactos siguen en tu agenda de Android."),
         h(Button,{onClick:function(){var values={};BACKUP_KEYS.forEach(function(k){values[k]=lsGetRaw(k,k===OPTIONS_KEY?JSON.stringify(o):k===THEME_KEY?"green":k===NAV_SOUND_KEY?"1":"[]");});callBool("exportPreferences",[JSON.stringify({format:"pipboy-preferences",version:1,values:values})]);}},"EXPORTAR ARCHIVO"),
         h(Button,{onClick:function(){callBool("importPreferences",[]);}},"IMPORTAR ARCHIVO")),
+      h(Section,{title:"ACTUALIZACIÓN"},
+        h(Text,null,"Versión instalada: v" + (props.currentVersion.versionName || "?") + " (" + (props.currentVersion.versionCode || "?") + ")"),
+        props.update.status === "checking" ? h(Text,null,"Buscando actualización…") : null,
+        props.update.status === "uptodate" ? h(Text,null,"Ya tienes la última versión.") : null,
+        props.update.status === "error" ? h(Text,null,"No se pudo revisar la actualización. Inténtalo de nuevo.") : null,
+        props.update.status === "downloading" ? h(Text,null,"Descargando actualización… cuando termine se abrirá el instalador.") : null,
+        props.update.status === "available" && props.update.data ? h(Text,null,"Hay actualización: v" + props.update.data.latestVersionName) : null,
+        h(Button,{onClick:function(){props.onCheckUpdate(true);}},"BUSCAR ACTUALIZACIÓN"),
+        props.update.status === "available" && props.update.data ?
+          (props.update.canInstall ?
+            h(Button,{onClick:function(){props.onStartUpdate(props.update.data.apkUrl);}},"ACTUALIZAR A v" + props.update.data.latestVersionName) :
+            h("div",null,
+              h(Text,null,"Para instalar, permite que Pip-Boy instale apps en Ajustes de Android."),
+              h(Button,{onClick:function(){if(props.onOpenInstallPermission) props.onOpenInstallPermission();}},"PERMITIR INSTALAR APPS"))) : null),
       h(Section,{title:"REY PEZ"},h(Text,null,"Solo lectura: pedido del día y saldos de clientes. La clave se guarda cifrada solo en este teléfono y nunca se sube al repo. Consíguela en Secret Manager del proyecto reypezapp-1ced2 (secreto ASISTENTE_API_KEY)."),
         h(Text,null,props.reyPezConfigured?"Clave guardada.":"Sin clave configurada."),
         h(Input,{label:"CLAVE REY PEZ",placeholder:"Pega tu clave aquí…",value:reyKey,onChange:function(e){setReyKey(e.target.value);}}),
@@ -3031,6 +3062,14 @@
     var reyPezKeyState = useState(false);
     var reyPezLastFetchRef = useRef(0);
 
+    // Actualización in-app (v1.4.0): estado de la revisión de GitHub.
+    // status: idle | checking | uptodate | available | downloading | error
+    var updateState = useState({ status: "idle", data: null, error: null, canInstall: false });
+    var updateCheckedRef = useRef(0);
+    var appVersionState = useState(function () {
+      return getAppVersion();
+    });
+
     // Live local clock (1s) — independent of the 10s stats poll.
     var clockState = useState(function () {
       return clockNow();
@@ -3066,6 +3105,8 @@
     var hidden = hiddenState[0], setHidden = hiddenState[1];
     var reyPez = reyPezState[0], setReyPez = reyPezState[1];
     var reyPezConfigured = reyPezKeyState[0], setReyPezConfigured = reyPezKeyState[1];
+    var appUpdate = updateState[0], setAppUpdate = updateState[1];
+    var appVersion = appVersionState[0];
 
     var tabRef = useRef(tab);
     tabRef.current = tab;
@@ -3164,6 +3205,27 @@
           return;
         }
         setReyPez({ status: "ok", data: res, error: null, updatedAt: res.fetchedAt || Date.now() });
+      }, 50);
+    }, []);
+
+    // Actualización in-app: revisa el Release más reciente de GitHub.
+    // Con caché de 1 hora; el botón BUSCAR ACTUALIZACIÓN fuerza con
+    // force=true. La llamada al puente es síncrona, así que primero se
+    // pinta "buscando" y la revisión corre en el siguiente tick.
+    var checkAppUpdateNow = useCallback(function (force) {
+      var now = Date.now();
+      if (!force && updateCheckedRef.current && now - updateCheckedRef.current < 60 * 60 * 1000) return;
+      setAppUpdate(function (prev) {
+        return { status: "checking", data: prev.data, error: null, canInstall: prev.canInstall };
+      });
+      setTimeout(function () {
+        var res = checkAppUpdate();
+        updateCheckedRef.current = Date.now();
+        if (!res || res.ok !== true) {
+          setAppUpdate({ status: "error", data: null, error: (res && res.error) || "ERROR_RED", canInstall: canInstallPackages() });
+          return;
+        }
+        setAppUpdate({ status: res.available ? "available" : "uptodate", data: res, error: null, canInstall: canInstallPackages() });
       }, 50);
     }, []);
 
@@ -3282,6 +3344,14 @@
       [tab, refreshReyPez]
     );
 
+    // When switching into AJUSTES, check for an app update (cached).
+    useEffect(
+      function () {
+        if (tab === "settings") checkAppUpdateNow(false);
+      },
+      [tab, checkAppUpdateNow]
+    );
+
     // ---- favorites / hidden mutators ----
     var toggleFavorite = useCallback(function (pkg) {
       setFavorites(function (prev) {
@@ -3339,6 +3409,17 @@
     if (tab === "settings") {
       body=h(PersonalSettings,{options:options,change:changeOptions,navSound:navSound,setNavSound:setNavSound,setTheme:setTheme,close:function(){setTab("home");},
         reyPezConfigured:reyPezConfigured,
+        currentVersion:appVersion,
+        update:appUpdate,
+        onCheckUpdate:checkAppUpdateNow,
+        onStartUpdate:function(apkUrl){
+          if (startAppUpdate(apkUrl)) {
+            setAppUpdate(function(prev){return {status:"downloading",data:prev.data,error:null,canInstall:prev.canInstall};});
+          } else {
+            showToast("No se pudo iniciar la actualización");
+          }
+        },
+        onOpenInstallPermission:function(){openInstallPermissionSettings();},
         onSaveReyPezKey:function(key){
           if (reyPezSetKey(key)) {
             setReyPezConfigured(true);
