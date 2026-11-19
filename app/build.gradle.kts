@@ -13,8 +13,8 @@ android {
         minSdk = 26
         targetSdk = 34
         testInstrumentationRunner = "com.pipboy3000.launcher.telephony.call.CallNotificationSmokeTest"
-        versionCode = 6
-        versionName = "1.3.0"
+        versionCode = 7
+        versionName = "1.4.0"
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
@@ -33,13 +33,21 @@ android {
         }
     }
 
-    // Never commit Allan's private signing key to this public repository.
+    // Never commit Allan's private RELEASE signing key to this public
+    // repository. The committed debug.keystore is different: es una clave
+    // SOLO de debug, generada para CI, con las credenciales convencionales
+    // de debug ("android"/"androiddebugkey"). Todos los Builds de CI firman
+    // con ella, así que los APK de CI comparten firma y la actualización
+    // in-app (v1.4.0) puede instalar encima sin desinstalar. Sin este
+    // archivo cada runner genera su propio debug key y cada APK queda con
+    // firma distinta ("conflicto con un paquete" al actualizar).
     // Local debug builds use Android's normal local debug keystore.
     signingConfigs {
         getByName("debug") {
             val optionalLocalKey = rootProject.file("debug.keystore")
             if (optionalLocalKey.exists()) {
                 storeFile = optionalLocalKey
+                storeType = "PKCS12"
                 storePassword = System.getenv("PIPBOY_KEYSTORE_PASSWORD") ?: "android"
                 keyAlias = System.getenv("PIPBOY_KEY_ALIAS") ?: "androiddebugkey"
                 keyPassword = System.getenv("PIPBOY_KEY_PASSWORD") ?: "android"
