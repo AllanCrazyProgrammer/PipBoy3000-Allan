@@ -1690,6 +1690,47 @@ class LauncherBridge(
     }
 
     // ---------------------------------------------------------------------
+    // Actualización in-app (v1.4.0): Releases de GitHub.
+    // ---------------------------------------------------------------------
+
+    private val appUpdateClient by lazy { AppUpdateClient(activity) }
+
+    @JavascriptInterface
+    fun getAppVersion(): String = try {
+        appUpdateClient.getAppVersion()
+    } catch (e: Exception) {
+        "{\"versionCode\":0,\"versionName\":\"\"}"
+    }
+
+    @JavascriptInterface
+    fun checkAppUpdate(): String = try {
+        appUpdateClient.checkUpdate()
+    } catch (e: Exception) {
+        "{\"ok\":false,\"error\":\"ERROR_RED\"}"
+    }
+
+    @JavascriptInterface
+    fun canInstallPackages(): Boolean = try {
+        appUpdateClient.canInstallPackages()
+    } catch (e: Exception) {
+        false
+    }
+
+    @JavascriptInterface
+    fun openInstallPermissionSettings(): Boolean = try {
+        appUpdateClient.openInstallPermissionSettings()
+    } catch (e: Exception) {
+        false
+    }
+
+    @JavascriptInterface
+    fun startAppUpdate(apkUrl: String): Boolean = try {
+        appUpdateClient.startUpdate(apkUrl)
+    } catch (e: Exception) {
+        false
+    }
+
+    // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
 
