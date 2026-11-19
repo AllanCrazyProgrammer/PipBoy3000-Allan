@@ -77,7 +77,7 @@ class ReyPezClient(private val activity: Activity) {
 
     private fun prefs(): SharedPreferences {
         return try {
-            val masterKey = MasterKey.Builder(activity, MasterKey.DEFAULT_AES256_GCM)
+            val masterKey = MasterKey.Builder(activity)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
             EncryptedSharedPreferences.create(
