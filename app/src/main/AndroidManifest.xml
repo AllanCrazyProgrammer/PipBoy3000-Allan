@@ -7,6 +7,11 @@
          no pide nada al usuario. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Actualización in-app (v1.4.0): instalar APKs descargados del
+         propio repo. Permiso normal de sistema: el usuario lo concede en
+         Ajustes si Android lo pide ("instalar apps desconocidas"). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- See every installed app so the inventory (app drawer) is complete. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
@@ -107,6 +112,18 @@
                 <data android:scheme="mmsto" />
             </intent-filter>
         </activity>
+
+        <!-- Actualización in-app (v1.4.0): expone el APK descargado al
+             instalador del sistema. Solo el directorio cache/update. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.pipboy3000.launcher.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
 
         <!-- ===== Default SMS app components ===== -->
         <receiver
